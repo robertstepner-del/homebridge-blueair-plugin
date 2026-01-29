@@ -67,7 +67,8 @@
             },
             "model": {
               "title": "Model",
-              "type": "string"
+              "type": "string",
+              "description": "Device model name. Used to auto-detect if the device is a humidifier or air purifier (e.g., 'Humidifier', 'Air Purifier')."
             },
             "serialNumber": {
               "title": "Serial Number",
@@ -85,7 +86,17 @@
             },
             "airQualitySensor": {
               "title": "Air Quality Sensor",
-              "description": "Toggles if the air quality sensor service is created with the accessory.",
+              "description": "Toggles if the air quality sensor service is created with the accessory. (Air Purifiers only)",
+              "type": "boolean"
+            },
+            "humiditySensor": {
+              "title": "Humidity Sensor",
+              "description": "Toggles if the humidity sensor service is created with the accessory. (Humidifiers only)",
+              "type": "boolean"
+            },
+            "co2Sensor": {
+              "title": "CO2 Sensor",
+              "description": "Toggles if the CO2 sensor service is created with the accessory. (Not yet supported)",
               "type": "boolean"
             },
             "temperatureSensor": {
@@ -95,7 +106,7 @@
             },
             "germShield": {
               "title": "Germ Shield",
-              "description": "Toggles if the germ shield switch service is created with the accessory.",
+              "description": "Toggles if the germ shield switch service is created with the accessory. (Air Purifiers only)",
               "type": "boolean"
             },
             "nightMode": {

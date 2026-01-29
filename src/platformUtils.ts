@@ -36,7 +36,7 @@ export enum Region {
 export const defaultConfig: Config = {
   name: 'BlueAir Platform',
   uiDebug: false,
-  verboseLogging: false,
+  verboseLogging: true,
   username: '',
   password: '',
   accountUuid: '',

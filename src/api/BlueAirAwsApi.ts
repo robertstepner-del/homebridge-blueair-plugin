@@ -134,6 +134,7 @@ export default class BlueAirAwsApi {
     }
 
     const devices = response.devices as BlueAirDeviceDiscovery[];
+    this.logger.debug(`Device discovery response: ${JSON.stringify(devices.map((d) => ({ name: d.name, type: d.type, uuid: d.uuid })))}`);
     return devices;
   }
 
@@ -154,26 +155,33 @@ export default class BlueAirAwsApi {
     }
 
     const deviceStatuses: BlueAirDeviceStatus[] = data.deviceInfo.map((device) => {
+      const sensorData = device.sensordata.reduce((acc, sensor) => {
+        const key = BlueAirDeviceSensorDataMap[sensor.n];
+        if (key) {
+          acc[key] = sensor.v;
+        }
+        return acc;
+      }, {} as BlueAirDeviceSensorData);
+
+      const state = device.states.reduce((acc, state) => {
+        if (state.v !== undefined) {
+          acc[state.n] = state.v;
+        } else if (state.vb !== undefined) {
+          acc[state.n] = state.vb;
+        } else {
+          this.logger.warn(`getDeviceStatus: unknown state ${JSON.stringify(state)}`);
+        }
+        return acc;
+      }, {} as BlueAirDeviceState);
+
+      this.logger.debug(`[${device.configuration.di.name}] Sensor data: ${JSON.stringify(sensorData)}`);
+      this.logger.debug(`[${device.configuration.di.name}] Device state: ${JSON.stringify(state)}`);
+
       return {
         id: device.id,
         name: device.configuration.di.name,
-        sensorData: device.sensordata.reduce((acc, sensor) => {
-          const key = BlueAirDeviceSensorDataMap[sensor.n];
-          if (key) {
-            acc[key] = sensor.v;
-          }
-          return acc;
-        }, {} as BlueAirDeviceSensorData),
-        state: device.states.reduce((acc, state) => {
-          if (state.v !== undefined) {
-            acc[state.n] = state.v;
-          } else if (state.vb !== undefined) {
-            acc[state.n] = state.vb;
-          } else {
-            this.logger.warn(`getDeviceStatus: unknown state ${JSON.stringify(state)}`);
-          }
-          return acc;
-        }, {} as BlueAirDeviceState),
+        sensorData,
+        state,
       };
     });
 

@@ -6,6 +6,7 @@ import { defaultsDeep } from 'lodash';
 import BlueAirAwsApi, { BlueAirDeviceStatus } from './api/BlueAirAwsApi';
 import { BlueAirDevice } from './device/BlueAirDevice';
 import { AirPurifierAccessory } from './accessory/AirPurifierAccessory';
+import { HumidifierAccessory } from './accessory/HumidifierAccessory';
 import EventEmitter from 'events';
 
 export class BlueAirPlatform extends EventEmitter implements DynamicPlatformPlugin {
@@ -135,14 +136,31 @@ export class BlueAirPlatform extends EventEmitter implements DynamicPlatformPlug
       }
     });
 
+    // Determine if this is a humidifier based on model name or device config
+    const isHumidifier = this.isHumidifierDevice(deviceConfig);
+
     if (existingAccessory) {
       this.log.info(`[${deviceConfig.name}] Restoring existing accessory from cache: ${existingAccessory.displayName}`);
-      new AirPurifierAccessory(this, existingAccessory, blueAirDevice, deviceConfig);
+      if (isHumidifier) {
+        new HumidifierAccessory(this, existingAccessory, blueAirDevice, deviceConfig);
+      } else {
+        new AirPurifierAccessory(this, existingAccessory, blueAirDevice, deviceConfig);
+      }
     } else {
       this.log.info('Adding new accessory:', device.name);
       const accessory = new this.api.platformAccessory(device.name, uuid);
-      new AirPurifierAccessory(this, accessory, blueAirDevice, deviceConfig);
+      if (isHumidifier) {
+        new HumidifierAccessory(this, accessory, blueAirDevice, deviceConfig);
+      } else {
+        new AirPurifierAccessory(this, accessory, blueAirDevice, deviceConfig);
+      }
       this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
     }
+  }
+
+  private isHumidifierDevice(deviceConfig: { model?: string; name?: string }): boolean {
+    const deviceName = (deviceConfig.model || deviceConfig.name || '').toLowerCase();
+    const humidifierPatterns = ['humidifier', 'humidify', 'moisture', 'hygrostat'];
+    return humidifierPatterns.some((pattern) => deviceName.includes(pattern));
   }
 }
