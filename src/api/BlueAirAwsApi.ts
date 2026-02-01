@@ -1,5 +1,5 @@
 import { Logger } from "homebridge";
-import { Region } from "../utils/platformUtils";
+import { Region } from "../utils";
 import GigyaApi from "./GigyaApi";
 import {
   BLUEAIR_API_TIMEOUT,
@@ -50,6 +50,10 @@ export type BlueAirDeviceSensorData = {
   pm2_5?: number;
   temperature?: number;
   voc?: number;
+  co2?: number;
+  no2?: number;
+  o3?: number;
+  noxDensity?: number;
   [key: string]: string | number | boolean | undefined;
 };
 
@@ -78,7 +82,19 @@ export const BlueAirDeviceSensorDataMap: Record<
   pm2_5: "pm2_5",
   t: "temperature",
   tVOC: "voc",
+  co2: "co2",
+  no2: "no2",
+  o3: "o3",
+  nox: "noxDensity",
 };
+
+// Device type constants based on API response
+export const DEVICE_TYPES = {
+  PURIFIER: "purifier",
+  HUMIDIFIER: "humidifier",
+  HEALTH_PROTECT: "healthprotect",
+  DUST_MAGNET: "dustmagnet",
+} as const;
 
 export default class BlueAirAwsApi {
   private readonly gigyaApi: GigyaApi;

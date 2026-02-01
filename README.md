@@ -20,28 +20,20 @@ Search for "Blueair Purifier" in in [homebridge-config-ui-x](https://github.com/
 sudo npm install -g homebridge-blueair-purifier
 ```
 
-## Supported Devices
+### Features
 
 This plugin only supports WiFi connected BlueAir purifiers utilizing cloud connectivity (via AWS) for device communication. Below is a list of known tested products.
-
-| Device | Product Page |
-|----------------|------------|
-| Blue Pure 211i Max | [link](https://www.blueair.com/us/air-purifiers/blue-pure-211i-max/3541.html?cgid=air-purifiers) |
-| Blue Pure 311i+ Max | [link](https://www.blueair.com/us/air-purifiers/blue-pure-311i-plus-max/3540.html?cgid=air-purifiers) |
-| Blue Pure 311i Max | [link](https://www.blueair.com/us/air-purifiers/blue-pure-311i-max/3539.html?cgid=air-purifiers) |
-| Blue Pure 411i Max | [link](https://www.blueair.com/us/air-purifiers/blue-pure-411i-max/3538.html?cgid=air-purifiers) |
-| Blue Pure 511i Max | [link](https://www.blueair.com/us/air-purifiers/blue-pure-511i-max/3710.html) |
-| Protect 7470i | [link](https://www.blueair.com/us/air-purifiers/2954.html?cgid=air-purifiers) |
-| DustMagnet™ 5440i | [link](https://www.blueair.com/us/air-purifiers/dustmagnet-5440i/2420.html?cgid=air-purifiers) |
-
-### Features
 
 - **Simple Login Mechanism** - all you need is your username and password to get started.
 - **Semi-automatic detection and configuration of multiple BlueAir devices.**
 - **Fast response times** - the plugin uses the BlueAir API to communicate with the devices.
+- **Intelligent device detection** - automatically detects device type and capabilities from API responses.
+- **Expandable sensor support** - supports PM 1/2.5/10, Temperature, Humidity, VOC, HCHO, CO₂, NO₂, and Ozone sensors (when available on device).
 
 >[!NOTE]
 >**Air quality readings** - the plugin may not always report the correct air quality readings (like PM 2.5) due to the BlueAir API limitations. The solution for this issue is in progress.
+>
+>**Advanced sensors** - CO₂, NO₂, and Ozone sensors are now mapped and will be reported when available from your device, pending Homebridge characteristic support.
 
 ## Plugin Configuration
 
@@ -58,12 +50,42 @@ This plugin only supports WiFi connected BlueAir purifiers utilizing cloud conne
 * Verbose Logging
 * BlueAir Server Region Selection
 
-### Supported Devices / Features
-| Device                                                   | Air Purifier | LED Status Switch |    PM 2.5    | Temp. Sensor | Humidity Sensor | Night Mode | Germ Shield |
-|----------------------------------------------------------|:------------:|:-----------------:|:------------:|:------------:|:---------------:|:----------:|:-----------:|
-| DustMagnet                                               |      Y       |         Y         |      Y       |      N       |        N        |     Y      |      N      |
-| HealthProtect                                            |      Y       |         Y         |      Y       |      Y       |        N        |     Y      |      Y      |
-| Blue Pure                                                |      Y       |         Y         |      Y       |      N       |        N        |     Y      |      N      |
+### Sensor Support
+
+The plugin supports the following sensors when available on your device:
+
+| Sensor Type | Code | Description |
+|-------------|------|-------------|
+| PM 1.0 | `pm1` | Particulate Matter 1 micron |
+| PM 2.5 | `pm2_5` | Particulate Matter 2.5 microns |
+| PM 10 | `pm10` | Particulate Matter 10 microns |
+| Temperature | `t` | Ambient temperature |
+| Humidity | `h` | Relative humidity |
+| VOC | `tVOC` | Volatile Organic Compounds |
+| Formaldehyde | `hcho` | HCHO concentration |
+| Carbon Dioxide | `co2` | CO₂ levels |
+| Nitrogen Dioxide | `no2` | NO₂ levels |
+| Ozone | `o3` | Ozone concentration |
+| Nitrogen Oxides | `nox` | NOx density |
+
+### Device Detection
+
+The plugin automatically detects device capabilities based on:
+1. **API Device Type** - When the BlueAir API provides device type information
+2. **Model Name** - Pattern matching against known device models
+3. **Fallback Defaults** - Safe defaults for unknown devices
+
+This allows the plugin to intelligently enable/disable features based on what your specific device supports.
+
+## Extending the Plugin
+
+### Adding Support for New Sensors
+
+New sensor types can be added to the plugin by:
+
+1. Updating the sensor map in `src/api/BlueAirAwsApi.ts`
+2. Adding the sensor to the `BlueAirDeviceSensorData` type
+3. Creating appropriate Homebridge characteristics (if new sensor type)
 
 ## Credits
 

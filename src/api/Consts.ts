@@ -1,4 +1,4 @@
-import { Region } from "../utils/platformUtils";
+import { Region } from "../utils";
 
 type AWSConfigValue = {
   restApiId: string;

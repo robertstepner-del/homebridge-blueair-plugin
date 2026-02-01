@@ -1,6 +1,6 @@
 import { Logger } from "homebridge";
 import { getGigyaConfig } from "./Consts";
-import { Region } from "../utils/platformUtils";
+import { Region } from "../utils";
 
 export default class GigyaApi {
   private api_key: string;

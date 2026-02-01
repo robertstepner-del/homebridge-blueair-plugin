@@ -1,6 +1,6 @@
 import { API } from "homebridge";
 
-import { PLATFORM_NAME } from "./utils/settings";
+import { PLATFORM_NAME } from "./utils";
 import { BlueAirPlatform } from "./platform";
 
 /**

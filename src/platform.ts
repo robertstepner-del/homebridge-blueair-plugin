@@ -8,12 +8,10 @@ import {
   Characteristic,
 } from "homebridge";
 
-import { PLATFORM_NAME, PLUGIN_NAME } from "./utils/settings";
-import { Config, defaultConfig } from "./utils/platformUtils";
+import { PLATFORM_NAME, PLUGIN_NAME, Config, defaultConfig, getDeviceCapabilities } from "./utils";
 import { defaultsDeep } from "lodash";
-import BlueAirAwsApi, { BlueAirDeviceStatus } from "./api/BlueAirAwsApi";
-import { BlueAirDevice } from "./device/BlueAirDevice";
-import { BlueAirAccessory } from "./accessory/BlueairAccesory";
+import BlueAirAwsApi, { BlueAirDeviceStatus, DEVICE_TYPES } from "./api/BlueAirAwsApi";
+import { BlueAirDevice, BlueAirAccessory } from "./accessory";
 import EventEmitter from "events";
 
 export class BlueAirPlatform
@@ -250,12 +248,24 @@ export class BlueAirPlatform
   private isHumidifierDevice(deviceConfig: {
     model?: string;
     name?: string;
+    type?: string;
   }): boolean {
     const deviceName = (
       deviceConfig.model ||
       deviceConfig.name ||
       ""
     ).toLowerCase();
+    const deviceType = (deviceConfig.type || "").toLowerCase();
+
+    // Check device type first (from API)
+    if (
+      deviceType.includes(DEVICE_TYPES.HUMIDIFIER) ||
+      deviceType.includes("humidity")
+    ) {
+      return true;
+    }
+
+    // Check model name for humidifier patterns
     const humidifierPatterns = [
       "humidifier",
       "humidify",
