@@ -1,11 +1,11 @@
-import { API } from 'homebridge';
+import { API } from "homebridge";
 
-import { PLATFORM_NAME } from './settings';
-import { BlueAirPlatform } from './platform';
+import { PLATFORM_NAME } from "./utils/settings";
+import { BlueAirPlatform } from "./platform";
 
 /**
  * This method registers the platform with Homebridge
  */
-export = (api: API) => {
+module.exports = (api: API) => {
   api.registerPlatform(PLATFORM_NAME, BlueAirPlatform);
 };

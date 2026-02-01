@@ -3,20 +3,17 @@ src
 
 # ------------- Defaults ------------- #
 
+# config directory
+config
+
 # gitHub actions
 .github
 
-# eslint
-.eslintrc
-
 # typescript
-tsconfig.json
+.prettierrc
 
 # vscode
 .vscode
-
-# nodemon
-nodemon.json
 
 # Logs
 logs

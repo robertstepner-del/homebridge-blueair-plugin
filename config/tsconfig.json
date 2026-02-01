@@ -11,17 +11,17 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "outDir": "./dist",
-    "rootDir": "./src",
+    "outDir": "../dist",
+    "rootDir": "../src",
     "strict": true,
     "esModuleInterop": true,
     "noImplicitAny": false
   },
   "include": [
-    "src/"
+    "../src/"
   ],
   "exclude": [
     "**/*.spec.ts",
-    "homebridge-ui"
+    "../src/ui"
   ]
 }

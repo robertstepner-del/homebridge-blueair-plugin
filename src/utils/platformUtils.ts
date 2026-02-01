@@ -36,31 +36,31 @@ export type DeviceConfig = {
 };
 
 export enum Region {
-  EU = 'Default (all other regions)',
-  AU = 'Australia',
-  CN = 'China',
-  RU = 'Russia',
-  US = 'USA',
+  EU = "Default (all other regions)",
+  AU = "Australia",
+  CN = "China",
+  RU = "Russia",
+  US = "USA",
 }
 
 export const defaultConfig: Config = {
-  name: 'BlueAir Platform',
+  name: "BlueAir Platform",
   uiDebug: false,
   verboseLogging: true,
-  username: '',
-  password: '',
-  accountUuid: '',
+  username: "",
+  password: "",
+  accountUuid: "",
   region: Region.EU,
   pollingInterval: 15000,
   devices: [],
 };
 
 export const defaultDeviceConfig: DeviceConfig = {
-  id: '',
-  name: '',
-  model: '',
-  serialNumber: '',
-  room: '',
+  id: "",
+  name: "",
+  model: "",
+  serialNumber: "",
+  room: "",
   targetHumidity: 60,
   filterChangeLevel: 90,
   led: false,

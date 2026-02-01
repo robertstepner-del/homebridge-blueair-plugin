@@ -1,6 +1,6 @@
-import { Logger } from 'homebridge';
-import { getGigyaConfig } from './Consts';
-import { Region } from '../platformUtils';
+import { Logger } from "homebridge";
+import { getGigyaConfig } from "./Consts";
+import { Region } from "../utils/platformUtils";
 
 export default class GigyaApi {
   private api_key: string;
@@ -14,7 +14,9 @@ export default class GigyaApi {
   ) {
     const config = getGigyaConfig(region);
 
-    this.logger.debug(`Creating Gigya API instance with config: ${JSON.stringify(config)} and username: ${username} and region: ${region}`);
+    this.logger.debug(
+      `Creating Gigya API instance with config: ${JSON.stringify(config)} and username: ${username} and region: ${region}`,
+    );
 
     this.api_key = config.apiKey;
     this.gigyaApiUrl = `https://accounts.${config.gigyaRegion}.gigya.com`;
@@ -25,36 +27,43 @@ export default class GigyaApi {
       apiKey: this.api_key,
       loginID: this.username,
       password: this.password,
-      targetEnv: 'mobile',
+      targetEnv: "mobile",
     });
 
-    const response = await this.apiCall('/accounts.login', params.toString());
+    const response = await this.apiCall("/accounts.login", params.toString());
 
     if (!response.sessionInfo) {
-      throw new Error(`Gigya session error: sessionInfo in response: ${JSON.stringify(response)}`);
+      throw new Error(
+        `Gigya session error: sessionInfo in response: ${JSON.stringify(response)}`,
+      );
     }
 
-    this.logger.debug('Gigya session received');
+    this.logger.debug("Gigya session received");
     return {
       token: response.sessionInfo.sessionToken,
       secret: response.sessionInfo.sessionSecret,
     };
   }
 
-  public async getGigyaJWT(token: string, secret: string): Promise<{ jwt: string }> {
+  public async getGigyaJWT(
+    token: string,
+    secret: string,
+  ): Promise<{ jwt: string }> {
     const params = new URLSearchParams({
       oauth_token: token,
       secret: secret,
-      targetEnv: 'mobile',
+      targetEnv: "mobile",
     });
 
-    const response = await this.apiCall('/accounts.getJWT', params.toString());
+    const response = await this.apiCall("/accounts.getJWT", params.toString());
 
     if (!response.id_token) {
-      throw new Error(`Gigya JWT error: no id_token in response: ${JSON.stringify(response)}`);
+      throw new Error(
+        `Gigya JWT error: no id_token in response: ${JSON.stringify(response)}`,
+      );
     }
 
-    this.logger.debug('Gigya JWT received');
+    this.logger.debug("Gigya JWT received");
     return {
       jwt: response.id_token,
     };
@@ -65,18 +74,20 @@ export default class GigyaApi {
     const controller = new AbortController();
     try {
       const response = await fetch(`${this.gigyaApiUrl}${url}?${data}`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          Accept: '*/*',
-          Connection: 'keep-alive',
-          'Accept-Encoding': 'gzip, deflate, br',
+          "Content-Type": "application/x-www-form-urlencoded",
+          Accept: "*/*",
+          Connection: "keep-alive",
+          "Accept-Encoding": "gzip, deflate, br",
         },
         signal: controller.signal,
       });
       const json = await response.json();
       if (response.status !== 200) {
-        throw new Error(`API call error with status ${response.status}: ${response.statusText}, ${JSON.stringify(json)}`);
+        throw new Error(
+          `API call error with status ${response.status}: ${response.statusText}, ${JSON.stringify(json)}`,
+        );
       }
       return json;
     } catch (error) {

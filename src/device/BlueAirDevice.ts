@@ -1,6 +1,11 @@
-import EventEmitter from 'events';
-import { BlueAirDeviceSensorData, BlueAirDeviceState, BlueAirDeviceStatus, FullBlueAirDeviceState } from '../api/BlueAirAwsApi';
-import { Mutex } from 'async-mutex';
+import EventEmitter from "events";
+import {
+  BlueAirDeviceSensorData,
+  BlueAirDeviceState,
+  BlueAirDeviceStatus,
+  FullBlueAirDeviceState,
+} from "../api/BlueAirAwsApi";
+import { Mutex } from "async-mutex";
 
 type AQILevels = {
   AQI_LO: number[];
@@ -41,15 +46,29 @@ type PendingChanges = {
 interface BlueAirDeviceEvents {
   stateUpdated: (changedStates: Partial<FullBlueAirDeviceState>) => void;
   update: (newState: BlueAirDeviceStatus) => void;
-  setState: (data: { id: string; name: string; attribute: string; value: number | boolean }) => void;
+  setState: (data: {
+    id: string;
+    name: string;
+    attribute: string;
+    value: number | boolean;
+  }) => void;
   setStateDone: (success: boolean) => void;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export interface BlueAirDevice {
-  on<K extends keyof BlueAirDeviceEvents>(event: K, listener: BlueAirDeviceEvents[K]): this;
-  emit<K extends keyof BlueAirDeviceEvents>(event: K, ...args: Parameters<BlueAirDeviceEvents[K]>): boolean;
-  once<K extends keyof BlueAirDeviceEvents>(event: K, listener: BlueAirDeviceEvents[K]): this;
+  on<K extends keyof BlueAirDeviceEvents>(
+    event: K,
+    listener: BlueAirDeviceEvents[K],
+  ): this;
+  emit<K extends keyof BlueAirDeviceEvents>(
+    event: K,
+    ...args: Parameters<BlueAirDeviceEvents[K]>
+  ): boolean;
+  once<K extends keyof BlueAirDeviceEvents>(
+    event: K,
+    listener: BlueAirDeviceEvents[K],
+  ): this;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
@@ -86,14 +105,20 @@ export class BlueAirDevice extends EventEmitter {
 
     this.last_brightness = this.state.brightness || 0;
 
-    this.on('update', this.updateState.bind(this));
+    this.on("update", this.updateState.bind(this));
   }
 
   private hasChanges(changes: PendingChanges): boolean {
-    return Object.keys(changes.state).length > 0 || Object.keys(changes.sensorData).length > 0;
+    return (
+      Object.keys(changes.state).length > 0 ||
+      Object.keys(changes.sensorData).length > 0
+    );
   }
 
-  private async notifyStateUpdate(newState?: Partial<BlueAirDeviceState>, newSensorData?: Partial<BlueAirDeviceSensorData>) {
+  private async notifyStateUpdate(
+    newState?: Partial<BlueAirDeviceState>,
+    newSensorData?: Partial<BlueAirDeviceSensorData>,
+  ) {
     this.currentChanges = {
       state: {
         ...this.currentChanges.state,
@@ -115,7 +140,10 @@ export class BlueAirDevice extends EventEmitter {
     if (this.hasChanges(changesToApply)) {
       this.state = { ...this.state, ...changesToApply.state };
       this.sensorData = { ...this.sensorData, ...changesToApply.sensorData };
-      this.emit('stateUpdated', { ...changesToApply.state, ...changesToApply.sensorData });
+      this.emit("stateUpdated", {
+        ...changesToApply.state,
+        ...changesToApply.sensorData,
+      });
     }
 
     release();
@@ -130,18 +158,18 @@ export class BlueAirDevice extends EventEmitter {
       return;
     }
 
-    this.emit('setState', { id: this.id, name: this.name, attribute, value });
+    this.emit("setState", { id: this.id, name: this.name, attribute, value });
 
     const release = await this.mutex.acquire();
 
     return new Promise<void>((resolve) => {
-      this.once('setStateDone', async (success) => {
+      this.once("setStateDone", async (success) => {
         release();
         if (success) {
           const newState: Partial<BlueAirDeviceState> = { [attribute]: value };
-          if (attribute === 'nightmode' && value === true) {
-            newState['fanspeed'] = 11;
-            newState['brightness'] = 0;
+          if (attribute === "nightmode" && value === true) {
+            newState["fanspeed"] = 11;
+            newState["brightness"] = 0;
           }
           await this.notifyStateUpdate(newState);
         }
@@ -155,7 +183,7 @@ export class BlueAirDevice extends EventEmitter {
       this.last_brightness = this.state.brightness || 0;
     }
     const brightness = value ? this.last_brightness : 0;
-    await this.setState('brightness', brightness);
+    await this.setState("brightness", brightness);
   }
 
   private async updateState(newState: BlueAirDeviceStatus) {
@@ -170,7 +198,7 @@ export class BlueAirDevice extends EventEmitter {
     for (const [k, v] of Object.entries(newState.sensorData)) {
       if (this.sensorData[k] !== v) {
         changedSensorData[k] = v;
-        if (k === 'pm25' || k === 'pm10' || k === 'voc') {
+        if (k === "pm25" || k === "pm10" || k === "voc") {
           changedSensorData.aqi = this.calculateAqi();
         }
       }
@@ -179,7 +207,11 @@ export class BlueAirDevice extends EventEmitter {
   }
 
   private calculateAqi(): number | undefined {
-    if (this.sensorData.pm2_5 === undefined && this.sensorData.pm10 === undefined && this.sensorData.voc === undefined) {
+    if (
+      this.sensorData.pm2_5 === undefined &&
+      this.sensorData.pm10 === undefined &&
+      this.sensorData.voc === undefined
+    ) {
       return undefined;
     }
 
@@ -187,9 +219,9 @@ export class BlueAirDevice extends EventEmitter {
     const pm10 = this.sensorData.pm10 || 0;
     const voc = this.sensorData.voc || 0;
 
-    const aqi_pm2_5 = this.calculateAqiForSensor(pm2_5, 'PM2_5');
-    const aqi_pm10 = this.calculateAqiForSensor(pm10, 'PM10');
-    const aqi_voc = this.calculateAqiForSensor(voc, 'VOC');
+    const aqi_pm2_5 = this.calculateAqiForSensor(pm2_5, "PM2_5");
+    const aqi_pm10 = this.calculateAqiForSensor(pm10, "PM10");
+    const aqi_voc = this.calculateAqiForSensor(voc, "VOC");
 
     return Math.max(aqi_pm2_5, aqi_pm10, aqi_voc);
   }
@@ -199,7 +231,9 @@ export class BlueAirDevice extends EventEmitter {
     for (let i = 0; i < levels.AQI_LO.length; i++) {
       if (value >= levels.CONC_LO[i] && value <= levels.CONC_HI[i]) {
         return Math.round(
-          ((levels.AQI_HI[i] - levels.AQI_LO[i]) / (levels.CONC_HI[i] - levels.CONC_LO[i])) * (value - levels.CONC_LO[i]) +
+          ((levels.AQI_HI[i] - levels.AQI_LO[i]) /
+            (levels.CONC_HI[i] - levels.CONC_LO[i])) *
+            (value - levels.CONC_LO[i]) +
             levels.AQI_LO[i],
         );
       }

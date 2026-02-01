@@ -1,4 +1,4 @@
-import { Region } from '../platformUtils';
+import { Region } from "../utils/platformUtils";
 
 type AWSConfigValue = {
   restApiId: string;
@@ -12,39 +12,44 @@ type GigyaConfigValue = {
 
 const AWS_CONFIG: Partial<Record<Region, AWSConfigValue>> = {
   [Region.US]: {
-    restApiId: 'on1keymlmh',
-    awsRegion: 'us-east-2',
+    restApiId: "on1keymlmh",
+    awsRegion: "us-east-2",
   },
   [Region.EU]: {
-    restApiId: 'hkgmr8v960',
-    awsRegion: 'eu-west-1',
+    restApiId: "hkgmr8v960",
+    awsRegion: "eu-west-1",
   },
   [Region.CN]: {
-    restApiId: 'ftbkyp79si',
-    awsRegion: 'cn-north-1',
+    restApiId: "ftbkyp79si",
+    awsRegion: "cn-north-1",
   },
 };
 
 const GIGYA_CONFIG: Record<Region, GigyaConfigValue> = {
   [Region.US]: {
-    gigyaRegion: 'us1',
-    apiKey: '3_-xUbbrIY8QCbHDWQs1tLXE-CZBQ50SGElcOY5hF1euE11wCoIlNbjMGAFQ6UwhMY',
+    gigyaRegion: "us1",
+    apiKey:
+      "3_-xUbbrIY8QCbHDWQs1tLXE-CZBQ50SGElcOY5hF1euE11wCoIlNbjMGAFQ6UwhMY",
   },
   [Region.EU]: {
-    gigyaRegion: 'eu1',
-    apiKey: '3_qRseYzrUJl1VyxvSJANalu_kNgQ83swB1B9uzgms58--5w1ClVNmrFdsDnWVQQCl',
+    gigyaRegion: "eu1",
+    apiKey:
+      "3_qRseYzrUJl1VyxvSJANalu_kNgQ83swB1B9uzgms58--5w1ClVNmrFdsDnWVQQCl",
   },
   [Region.CN]: {
-    gigyaRegion: 'cn1',
-    apiKey: '3_h3UEfJnA-zDpFPR9L4412HO7Mz2VVeN4wprbWYafPN1gX0kSnLcZ9VSfFi7bEIIU',
+    gigyaRegion: "cn1",
+    apiKey:
+      "3_h3UEfJnA-zDpFPR9L4412HO7Mz2VVeN4wprbWYafPN1gX0kSnLcZ9VSfFi7bEIIU",
   },
   [Region.AU]: {
-    gigyaRegion: 'au1',
-    apiKey: '3_Z2N0mIFC6j2fx1z2sq76R3pwkCMaMX2y9btPb0_PgI_3wfjSJoofFnBbxbtuQksN',
+    gigyaRegion: "au1",
+    apiKey:
+      "3_Z2N0mIFC6j2fx1z2sq76R3pwkCMaMX2y9btPb0_PgI_3wfjSJoofFnBbxbtuQksN",
   },
   [Region.RU]: {
-    gigyaRegion: 'ru1',
-    apiKey: '3_wYhHEBaOcS_w6idVM3mh8UjyjOP-3Dwn3w9Z6AYc0FhGf-uIwUkrcoCdsYarND2k',
+    gigyaRegion: "ru1",
+    apiKey:
+      "3_wYhHEBaOcS_w6idVM3mh8UjyjOP-3Dwn3w9Z6AYc0FhGf-uIwUkrcoCdsYarND2k",
   },
 };
 

@@ -66,7 +66,14 @@ This plugin only supports WiFi connected BlueAir purifiers utilizing cloud conne
 | Blue Pure                                                |      Y       |         Y         |      Y       |      N       |        N        |     Y      |      N      |
 
 ## Credits
-Inspired by the work of [@fsj21](https://github.com/fjs21) on the Amazon Web Services (AWS) API and construction of the documentation.
+
+This plugin is based on the original work by [@kovapatrik](https://github.com/kovapatrik). Special thanks to him for creating and maintaining the homebridge-blueair-purifier plugin.
+
+If you'd like to support kovapatrik's work:
+- [GitHub](https://github.com/kovapatrik)
+- [Buy Me a Coffee](https://www.buymeacoffee.com/kovapatrik)
+
+Original inspiration from the work of [@fsj21](https://github.com/fjs21) on the Amazon Web Services (AWS) API and construction of the documentation.
 
 ### Trademarks
 
