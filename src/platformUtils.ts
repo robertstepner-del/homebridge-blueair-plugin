@@ -8,6 +8,14 @@ export type Config = {
   uiDebug: boolean;
   pollingInterval: number;
   devices: DeviceConfig[];
+  discoveredDevices?: DiscoveredDevice[];
+};
+
+export type DiscoveredDevice = {
+  uuid: string;
+  name: string;
+  type: string;
+  mac: string;
 };
 
 export type DeviceConfig = {
@@ -15,7 +23,9 @@ export type DeviceConfig = {
   name: string;
   model: string;
   serialNumber: string;
+  room?: string;
   filterChangeLevel: number;
+  targetHumidity?: number;
   led: boolean;
   airQualitySensor: boolean;
   co2Sensor: boolean;
@@ -50,6 +60,8 @@ export const defaultDeviceConfig: DeviceConfig = {
   name: '',
   model: '',
   serialNumber: '',
+  room: '',
+  targetHumidity: 60,
   filterChangeLevel: 90,
   led: false,
   airQualitySensor: false,

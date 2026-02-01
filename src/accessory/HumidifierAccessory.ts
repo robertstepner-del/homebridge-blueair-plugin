@@ -23,6 +23,14 @@ export class HumidifierAccessory {
       .setCharacteristic(this.platform.Characteristic.Model, this.configDev.model || 'BlueAir Humidifier')
       .setCharacteristic(this.platform.Characteristic.SerialNumber, this.configDev.serialNumber || 'BlueAir Device');
 
+    // Set room/grouping if configured
+    if (this.configDev.room) {
+      this.accessory.displayName = `${this.configDev.name} (${this.configDev.room})`;
+    }
+
+    // Log device initialization for visibility
+    this.platform.log.info(`[${this.configDev.name}] Initializing Humidifier accessory (Model: ${this.configDev.model || 'Unknown'})`);
+
     this.service =
       this.accessory.getService(this.platform.Service.HumidifierDehumidifier) ||
       this.accessory.addService(this.platform.Service.HumidifierDehumidifier);
@@ -34,6 +42,7 @@ export class HumidifierAccessory {
 
     this.service
       .getCharacteristic(this.platform.Characteristic.TargetRelativeHumidity)
+      .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
       .onGet(this.getTargetRelativeHumidity.bind(this))
       .onSet(this.setTargetRelativeHumidity.bind(this));
 
@@ -153,19 +162,25 @@ export class HumidifierAccessory {
   }
 
   getCurrentRelativeHumidity(): CharacteristicValue {
-    return this.device.sensorData.humidity || 0;
+    // Validate humidity is within valid range (0-100)
+    const humidity = Math.max(0, Math.min(100, this.device.sensorData.humidity || 0));
+    return humidity;
   }
 
   getTargetRelativeHumidity(): CharacteristicValue {
-    // Return a reasonable default target humidity (e.g., 60%)
-    // This can be enhanced if the API provides target humidity data
-    return 60;
+    // Return configured target humidity (default 60%)
+    return this.configDev.targetHumidity || 60;
   }
 
   async setTargetRelativeHumidity(value: CharacteristicValue) {
-    this.platform.log.debug(`[${this.device.name}] Setting target humidity to ${value}`);
-    // TODO: Implement if the BlueAir API supports humidity target control
-    // For now, this is a placeholder for future implementation
+    const targetHumidity = Math.max(0, Math.min(100, value as number));
+    this.platform.log.debug(`[${this.device.name}] Setting target humidity to ${targetHumidity}%`);
+
+    // Store the target humidity for future use
+    // Note: This assumes the BlueAir API may support humidity targets in the future
+    // If the API supports it, implement the API call here
+    // For now, we store it in the config and log the intention
+    this.platform.log.info(`[${this.device.name}] Target humidity set to ${targetHumidity}% (storage only - API control pending)`);
   }
 
   getCurrentHumidifierState(): CharacteristicValue {

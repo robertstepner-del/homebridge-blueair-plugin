@@ -25,6 +25,14 @@ export class AirPurifierAccessory {
       .setCharacteristic(this.platform.Characteristic.Model, this.configDev.model || 'BlueAir Purifier')
       .setCharacteristic(this.platform.Characteristic.SerialNumber, this.configDev.serialNumber || 'BlueAir Device');
 
+    // Set room/grouping if configured
+    if (this.configDev.room) {
+      this.accessory.displayName = `${this.configDev.name} (${this.configDev.room})`;
+    }
+
+    // Log device initialization for visibility
+    this.platform.log.info(`[${this.configDev.name}] Initializing Air Purifier accessory (Model: ${this.configDev.model || 'Unknown'})`);
+
     this.service =
       this.accessory.getService(this.platform.Service.AirPurifier) || this.accessory.addService(this.platform.Service.AirPurifier);
 
@@ -45,6 +53,7 @@ export class AirPurifierAccessory {
 
     this.service
       .getCharacteristic(this.platform.Characteristic.RotationSpeed)
+      .setProps({ minValue: 0, maxValue: 11, minStep: 1 })
       .onGet(this.getRotationSpeed.bind(this))
       .onSet(this.setRotationSpeed.bind(this));
 
@@ -242,9 +251,29 @@ export class AirPurifierAccessory {
     return this.device.state.standby === false ? this.device.state.fanspeed || 0 : 0;
   }
 
+  private getFanSpeedLabel(speed: number): string {
+    // Map fanspeed 0-11 to human-readable labels
+    const labels: { [key: number]: string } = {
+      0: 'Off',
+      1: 'Quiet',
+      2: 'Quiet',
+      3: 'Quiet',
+      4: 'Medium',
+      5: 'Medium',
+      6: 'Medium',
+      7: 'High',
+      8: 'High',
+      9: 'High',
+      10: 'Boost',
+      11: 'Night Mode',
+    };
+    return labels[speed] || 'Unknown';
+  }
+
   async setRotationSpeed(value: CharacteristicValue) {
-    this.platform.log.debug(`[${this.device.name}] Setting rotation speed to ${value}`);
-    await this.device.setState('fanspeed', value as number);
+    const speed = value as number;
+    this.platform.log.debug(`[${this.device.name}] Setting fan speed to ${speed} (${this.getFanSpeedLabel(speed)})`);
+    await this.device.setState('fanspeed', speed);
   }
 
   getFilterChangeIndication(): CharacteristicValue {

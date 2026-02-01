@@ -87,6 +87,14 @@ export class BlueAirPlatform extends EventEmitter implements DynamicPlatformPlug
       let uuids = this.platformConfig.devices.map((device) => device.id);
       const devices = await this.blueAirApi.getDeviceStatus(this.platformConfig.accountUuid, uuids);
 
+      // Log status at startup for visibility
+      this.log.info(`Found ${devices.length} device(s) in API response`);
+      for (const device of devices) {
+        const config = this.platformConfig.devices.find((c) => c.id === device.id);
+        const deviceType = config && this.isHumidifierDevice(config) ? 'Humidifier' : 'Air Purifier';
+        this.log.info(`[${device.name}] Type: ${deviceType}, Model: ${config?.model || 'Unknown'}`);
+      }
+
       for (const device of devices) {
         this.addDevice(device);
         uuids = uuids.filter((uuid) => uuid !== device.id);
@@ -155,6 +163,26 @@ export class BlueAirPlatform extends EventEmitter implements DynamicPlatformPlug
         new AirPurifierAccessory(this, accessory, blueAirDevice, deviceConfig);
       }
       this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+    }
+  }
+
+  /**
+   * Get available devices from API for auto-discovery
+   * Used by the configuration UI to populate available devices
+   */
+  async getAvailableDevices(): Promise<Array<{ uuid: string; name: string; type: string; mac: string }>> {
+    try {
+      await this.blueAirApi.login();
+      const devices = await this.blueAirApi.getDevices();
+      return devices.map((d) => ({
+        uuid: d.uuid,
+        name: d.name,
+        type: d.type,
+        mac: d.mac,
+      }));
+    } catch (error) {
+      this.log.error('Error getting available devices:', error);
+      return [];
     }
   }
 

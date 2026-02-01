@@ -4,7 +4,7 @@ import GigyaApi from './GigyaApi';
 import { BLUEAIR_API_TIMEOUT, BlueAirDeviceStatusResponse, LOGIN_EXPIRATION, getAwsConfig } from './Consts';
 import { Mutex } from 'async-mutex';
 
-type BlueAirDeviceDiscovery = {
+export type BlueAirDeviceDiscovery = {
   mac: string;
   'mcu-firmware': string;
   name: string;
