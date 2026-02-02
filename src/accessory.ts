@@ -261,6 +261,8 @@ export class BlueAirAccessory {
   private lastManualOverride = 0;
   private lastAutoAdjust = 0;
   private loggedNoWritableTargetHumidity = false;
+  private fanSpeedDebounceTimer?: ReturnType<typeof setTimeout>;
+  private pendingFanSpeed?: number;
 
   constructor(
     protected readonly platform: BlueAirPlatform,
@@ -393,21 +395,21 @@ export class BlueAirAccessory {
       )
       .onGet(this.getCurrentHumidifierState.bind(this));
 
+    // Lock to HUMIDIFIER mode only - no dropdown selector
+    // Auto/manual mode is handled automatically based on which control the user adjusts:
+    // - Adjusting humidity target → enables auto mode
+    // - Adjusting fan speed → disables auto mode (manual)
     this.service
       .getCharacteristic(
         this.platform.Characteristic.TargetHumidifierDehumidifierState,
       )
       .setProps({
-        // Use DEHUMIDIFIER value as "Night Mode" (device doesn't dehumidify)
         validValues: [
-          this.platform.Characteristic.TargetHumidifierDehumidifierState
-            .HUMIDIFIER_OR_DEHUMIDIFIER, // Auto
-          this.platform.Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER, // Manual/Humidify
-          this.platform.Characteristic.TargetHumidifierDehumidifierState.DEHUMIDIFIER, // Night Mode
+          this.platform.Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER,
         ],
       })
-      .onGet(this.getTargetHumidifierState.bind(this))
-      .onSet(this.setTargetHumidifierState.bind(this));
+      .onGet(() => this.platform.Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER)
+      .onSet(() => { /* no-op - locked to HUMIDIFIER */ });
 
     // Use 0–100% scale for HomeKit; map internally to device speed (Sleep/1/2/3)
     this.service
@@ -559,17 +561,13 @@ export class BlueAirAccessory {
       },
     );
 
-    // Night mode switch removed - humidifiers use Night Mode in dropdown
-    // Pass false to remove any existing Night Mode service from cache
+    // Night mode switch removed - night mode is triggered automatically when fan speed is low
     this.setupOptionalService(
       S.Switch,
       "NightMode",
       "Night Mode",
-      false, // Always remove - Night Mode is in the dropdown for humidifiers
-      (svc) => {
-        svc.setCharacteristic(C.ConfiguredName, `${this.device.name} Night Mode`);
-        svc.getCharacteristic(C.On).onGet(this.getNightMode.bind(this)).onSet(this.setNightMode.bind(this));
-      },
+      false, // Always remove
+      () => {},
     );
 
     // Humidity sensor (humidifier only) - default to true if not explicitly set
@@ -882,19 +880,45 @@ export class BlueAirAccessory {
   }
 
   async setRotationSpeed(value: CharacteristicValue) {
-    this.platform.log.debug(`[${this.device.name}] setRotationSpeed called with value: ${value}`);
     const hkSpeed = Math.max(0, Math.min(100, value as number));
     // Map HomeKit 0-100% to device 0-11
     const deviceSpeed = Math.round((hkSpeed / 100) * FAN_SPEED_MAX);
 
-    this.platform.log.info(
-      `[${this.device.name}] HomeKit → setRotationSpeed: ${hkSpeed}% → device speed ${deviceSpeed} - disabling auto mode`,
-    );
-    // Manual fan change disables auto humidity control and automode
-    this.humidityAutoControlEnabled = false;
-    this.lastManualOverride = Date.now();
-    await this.device.setState("automode", false);
-    await this.device.setState("fanspeed", deviceSpeed);
+    // Debounce: HomeKit sends rapid updates when dragging slider
+    // Only send the final value after 300ms of no changes
+    this.pendingFanSpeed = deviceSpeed;
+    
+    if (this.fanSpeedDebounceTimer) {
+      clearTimeout(this.fanSpeedDebounceTimer);
+    }
+
+    this.fanSpeedDebounceTimer = setTimeout(async () => {
+      const speedToSet = this.pendingFanSpeed;
+      if (speedToSet === undefined) return;
+      
+      // Night mode activates when fan speed is below 10% (device speed 1 or less)
+      const enableNightMode = speedToSet <= 1;
+      
+      if (enableNightMode) {
+        this.platform.log.info(
+          `[${this.device.name}] HomeKit → setFanSpeed: ${hkSpeed}% → enabling Night Mode`,
+        );
+        this.humidityAutoControlEnabled = false;
+        await this.device.setState("automode", false);
+        await this.device.setState("nightmode", true);
+      } else {
+        this.platform.log.info(
+          `[${this.device.name}] HomeKit → setFanSpeed: ${hkSpeed}% → device speed ${speedToSet}`,
+        );
+        // Manual fan change disables auto humidity control, automode, and night mode
+        this.humidityAutoControlEnabled = false;
+        this.lastManualOverride = Date.now();
+        await this.device.setState("nightmode", false);
+        await this.device.setState("automode", false);
+        await this.device.setState("fanspeed", speedToSet);
+      }
+      this.pendingFanSpeed = undefined;
+    }, 300);
   }
 
   getFilterChangeIndication(): CharacteristicValue {
@@ -1078,39 +1102,29 @@ export class BlueAirAccessory {
   }
 
   getTargetHumidifierState(): CharacteristicValue {
-    // Night mode
+    // Night mode -> DEHUMIDIFIER (repurposed)
     if (this.device.state.nightmode === true) {
       return this.platform.Characteristic.TargetHumidifierDehumidifierState.DEHUMIDIFIER;
     }
-    // Auto mode
-    if (this.device.state.automode) {
-      return this.platform.Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER_OR_DEHUMIDIFIER;
-    }
-    // Manual mode
+    // Both auto mode and manual mode show as HUMIDIFIER (to keep humidity slider visible)
     return this.platform.Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER;
   }
 
   async setTargetHumidifierState(value: CharacteristicValue) {
     const C = this.platform.Characteristic.TargetHumidifierDehumidifierState;
     
-    if (value === C.HUMIDIFIER_OR_DEHUMIDIFIER) {
-      // Auto mode
-      this.platform.log.info(`[${this.device.name}] HomeKit → setTargetHumidifierState: AUTO`);
-      this.humidityAutoControlEnabled = true;
-      await this.device.setState("nightmode", false);
-      await this.device.setState("automode", true);
-    } else if (value === C.DEHUMIDIFIER) {
+    if (value === C.DEHUMIDIFIER) {
       // Night mode (repurposed DEHUMIDIFIER)
-      this.platform.log.info(`[${this.device.name}] HomeKit → setTargetHumidifierState: NIGHT MODE`);
+      this.platform.log.info(`[${this.device.name}] HomeKit → setMode: NIGHT MODE`);
       this.humidityAutoControlEnabled = false;
       await this.device.setState("automode", false);
       await this.device.setState("nightmode", true);
     } else {
-      // Manual/Humidify mode
-      this.platform.log.info(`[${this.device.name}] HomeKit → setTargetHumidifierState: MANUAL`);
-      this.humidityAutoControlEnabled = false;
+      // HUMIDIFIER mode - enable auto mode with humidity target
+      this.platform.log.info(`[${this.device.name}] HomeKit → setMode: AUTO (humidity control)`);
+      this.humidityAutoControlEnabled = true;
       await this.device.setState("nightmode", false);
-      await this.device.setState("automode", false);
+      await this.device.setState("automode", true);
     }
   }
 
