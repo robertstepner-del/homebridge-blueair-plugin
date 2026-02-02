@@ -263,6 +263,10 @@ export class BlueAirAccessory {
   private fanSpeedDebounceTimer?: ReturnType<typeof setTimeout>;
   private pendingFanSpeed?: number;
   private pendingHkSpeed?: number;
+  private nlBrightnessDebounceTimer?: ReturnType<typeof setTimeout>;
+  private pendingNlBrightness?: number;
+  private humidityDebounceTimer?: ReturnType<typeof setTimeout>;
+  private pendingHumidity?: number;
   
   // Dynamic capabilities detected from device state keys
   private capabilities: DeviceCapabilities = {
@@ -821,7 +825,19 @@ export class BlueAirAccessory {
     await this.device.setState("brightness", value as number);
   }
 
-  // Night light brightness
+  // Night light brightness - device uses inverted scale (lower value = brighter)
+  // Device: 0 = off, 1 = brightest, 100 = dimmest
+  // HomeKit: 0 = off, 100 = brightest
+  private nlDeviceToHomeKit(deviceValue: number): number {
+    if (deviceValue === 0) return 0;
+    return 100 - deviceValue + 1; // 1 -> 100, 100 -> 1
+  }
+
+  private nlHomeKitToDevice(hkValue: number): number {
+    if (hkValue === 0) return 0;
+    return 100 - hkValue + 1; // 100 -> 1, 1 -> 100
+  }
+
   getNightLightOn(): CharacteristicValue {
     return (
       this.device.state.nlbrightness !== undefined &&
@@ -831,18 +847,36 @@ export class BlueAirAccessory {
 
   async setNightLightOn(value: CharacteristicValue) {
     this.platform.log.info(`[${this.device.name}] HomeKit → setNightLightOn: ${value ? "ON" : "OFF"}`);
-    // Turn on to previous brightness or 50%, turn off to 0
-    const brightness = value ? (this.device.state.nlbrightness || 50) : 0;
-    await this.device.setState("nlbrightness", brightness);
+    // Turn on to previous brightness or 50% (device value ~50), turn off to 0
+    const deviceBrightness = value ? (this.device.state.nlbrightness || 50) : 0;
+    await this.device.setState("nlbrightness", deviceBrightness);
   }
 
   getNightLightBrightness(): CharacteristicValue {
-    return this.device.state.nlbrightness || 0;
+    return this.nlDeviceToHomeKit(this.device.state.nlbrightness || 0);
   }
 
   async setNightLightBrightness(value: CharacteristicValue) {
-    this.platform.log.info(`[${this.device.name}] HomeKit → setNightLightBrightness: ${value}%`);
-    await this.device.setState("nlbrightness", value as number);
+    const hkValue = value as number;
+    const deviceValue = this.nlHomeKitToDevice(hkValue);
+
+    // Debounce: HomeKit sends rapid updates when dragging slider
+    this.pendingNlBrightness = deviceValue;
+
+    if (this.nlBrightnessDebounceTimer) {
+      clearTimeout(this.nlBrightnessDebounceTimer);
+    }
+
+    this.nlBrightnessDebounceTimer = setTimeout(async () => {
+      const valueToSet = this.pendingNlBrightness;
+      if (valueToSet === undefined) return;
+
+      this.platform.log.info(
+        `[${this.device.name}] HomeKit → setNightLightBrightness: ${hkValue}% (device: ${valueToSet})`,
+      );
+      await this.device.setState("nlbrightness", valueToSet);
+      this.pendingNlBrightness = undefined;
+    }, 500);
   }
 
   getNightMode(): CharacteristicValue {
@@ -1070,26 +1104,41 @@ export class BlueAirAccessory {
 
   async setTargetRelativeHumidity(value: CharacteristicValue) {
     const desired = Math.max(HUMIDITY_MIN, Math.min(HUMIDITY_MAX, value as number));
-    this.platform.log.info(
-      `[${this.device.name}] HomeKit → setTargetHumidity: ${desired}% - enabling auto mode`,
-    );
-    const attr = this.findHumidityTargetAttribute();
-    if (attr) {
-      await this.device.setState(attr, desired);
+
+    // Debounce: HomeKit sends rapid updates when dragging slider
+    this.pendingHumidity = desired;
+
+    if (this.humidityDebounceTimer) {
+      clearTimeout(this.humidityDebounceTimer);
+    }
+
+    this.humidityDebounceTimer = setTimeout(async () => {
+      const valueToSet = this.pendingHumidity;
+      if (valueToSet === undefined) return;
+
+      this.platform.log.info(
+        `[${this.device.name}] HomeKit → setTargetHumidity: ${valueToSet}% - enabling auto mode`,
+      );
+      const attr = this.findHumidityTargetAttribute();
+      if (attr) {
+        await this.device.setState(attr, valueToSet);
+        await this.device.setState("automode", true);
+        this.humidityAutoControlEnabled = true;
+        this.pendingHumidity = undefined;
+        return;
+      }
+      // Fallback: store locally if device does not expose a writable target
+      if (!this.loggedNoWritableTargetHumidity) {
+        this.platform.log.info(
+          `[${this.device.name}] Device did not expose a writable target humidity attribute; storing locally.`,
+        );
+        this.loggedNoWritableTargetHumidity = true;
+      }
+      this.configDev.targetHumidity = valueToSet;
       await this.device.setState("automode", true);
       this.humidityAutoControlEnabled = true;
-      return;
-    }
-    // Fallback: store locally if device does not expose a writable target
-    if (!this.loggedNoWritableTargetHumidity) {
-      this.platform.log.info(
-        `[${this.device.name}] Device did not expose a writable target humidity attribute; storing locally.`,
-      );
-      this.loggedNoWritableTargetHumidity = true;
-    }
-    this.configDev.targetHumidity = desired;
-    await this.device.setState("automode", true);
-    this.humidityAutoControlEnabled = true;
+      this.pendingHumidity = undefined;
+    }, 500);
   }
 
   private maybeAutoAdjustFanSpeed() {
