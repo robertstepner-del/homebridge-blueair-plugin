@@ -258,7 +258,6 @@ export class BlueAirAccessory {
   private temperatureService?: Service;
   private germShieldService?: Service;
   private nightModeService?: Service;
-  private disinfectionService?: Service;
   private deviceType: DeviceType;
 
   constructor(
@@ -495,7 +494,6 @@ export class BlueAirAccessory {
     this.setupLedService();
     this.setupTemperatureService();
     this.setupNightModeService();
-    this.setupDisinfectionService();
 
     if (this.deviceType === "humidifier") {
       this.setupHumidityService();
@@ -660,35 +658,6 @@ export class BlueAirAccessory {
     }
   }
 
-  private setupDisinfectionService() {
-    this.disinfectionService = this.accessory.getServiceById(
-      this.platform.Service.Switch,
-      "Disinfection",
-    );
-    // Only enable if we have state data for it or it's a humidifier
-    if (this.deviceType === "humidifier") {
-      this.disinfectionService ??= this.accessory.addService(
-        this.platform.Service.Switch,
-        `${this.device.name} Disinfection`,
-        "Disinfection",
-      );
-      this.disinfectionService.setCharacteristic(
-        this.platform.Characteristic.Name,
-        `${this.device.name} Disinfection`,
-      );
-      this.disinfectionService.setCharacteristic(
-        this.platform.Characteristic.ConfiguredName,
-        `${this.device.name} Disinfection`,
-      );
-      this.disinfectionService
-        .getCharacteristic(this.platform.Characteristic.On)
-        .onGet(this.getDisinfection.bind(this))
-        .onSet(this.setDisinfection.bind(this));
-    } else if (this.disinfectionService) {
-      this.accessory.removeService(this.disinfectionService);
-    }
-  }
-
   private setupEventListeners() {
     this.device.on("stateUpdated", this.updateCharacteristics.bind(this));
   }
@@ -822,12 +791,6 @@ export class BlueAirAccessory {
             this.getNightMode(),
           );
           break;
-        case "disinfection":
-          this.disinfectionService?.updateCharacteristic(
-            this.platform.Characteristic.On,
-            this.getDisinfection(),
-          );
-          break;
       }
 
       if (updateState) {
@@ -888,10 +851,6 @@ export class BlueAirAccessory {
         this.nightModeService?.updateCharacteristic(
           this.platform.Characteristic.On,
           this.getNightMode(),
-        );
-        this.disinfectionService?.updateCharacteristic(
-          this.platform.Characteristic.On,
-          this.getDisinfection(),
         );
       }
 
@@ -957,17 +916,6 @@ export class BlueAirAccessory {
       `[${this.device.name}] Setting night mode to ${value}`,
     );
     await this.device.setState("nightmode", value as boolean);
-  }
-
-  getDisinfection(): CharacteristicValue {
-    return this.device.state.disinfection === true;
-  }
-
-  async setDisinfection(value: CharacteristicValue) {
-    this.platform.log.debug(
-      `[${this.device.name}] Setting disinfection to ${value}`,
-    );
-    await this.device.setState("disinfection", value as boolean);
   }
 
   // Air Purifier specific
