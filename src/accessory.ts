@@ -39,8 +39,7 @@ const AQI: { [key: string]: AQILevels } = {
   },
 };
 
-// Fan speed for humidifier: 0-11 range (0=off/sleep, 11=max)
-const FAN_SPEED_MAX = 11;
+// Fan speed: device uses 0-100 percentage
 
 // Humidity target range
 const HUMIDITY_MIN = 30;
@@ -891,18 +890,17 @@ export class BlueAirAccessory {
     await this.device.setState("childlock", isLocked);
   }
 
-  // Fan speed mapping: 0-100% HomeKit <-> 0-11 device
+  // Fan speed: device uses 0-100% directly
   getRotationSpeed(): CharacteristicValue {
-    const rawSpeed = this.device.state.fanspeed ?? 0;
     if (this.device.state.standby !== false) return 0;
-    // Map device 0-11 to HomeKit 0-100%
-    return Math.round((rawSpeed / FAN_SPEED_MAX) * 100);
+    // Device already uses 0-100%
+    return this.device.state.fanspeed ?? 0;
   }
 
   async setRotationSpeed(value: CharacteristicValue) {
     const hkSpeed = Math.max(0, Math.min(100, value as number));
-    // Map HomeKit 0-100% to device 0-11
-    const deviceSpeed = Math.round((hkSpeed / 100) * FAN_SPEED_MAX);
+    // Device uses 0-100% directly
+    const deviceSpeed = Math.round(hkSpeed);
 
     // Debounce: HomeKit sends rapid updates when dragging slider
     // Store both values and only send after 500ms of no changes
@@ -918,8 +916,8 @@ export class BlueAirAccessory {
       const hkSpeedToLog = this.pendingHkSpeed;
       if (speedToSet === undefined) return;
       
-      // Night mode activates when fan speed is below 10% (device speed 1 or less)
-      const enableNightMode = speedToSet <= 1 && this.capabilities.hasNightMode;
+      // Night mode activates when fan speed is 10% or below
+      const enableNightMode = speedToSet <= 10 && this.capabilities.hasNightMode;
       
       try {
         if (enableNightMode) {
@@ -1104,14 +1102,14 @@ export class BlueAirAccessory {
 
     let newSpeed = speed;
     // Use hysteresis thresholds to avoid oscillation
-    // Adjust by 1-2 steps at a time based on humidity difference
+    // Adjust by 5-10% at a time based on humidity difference (device uses 0-100%)
     if (diff > 2) {
       // Need more humidity - increase fan speed
-      const step = diff > 5 ? 2 : 1;
-      newSpeed = Math.min(FAN_SPEED_MAX, speed + step);
+      const step = diff > 5 ? 10 : 5;
+      newSpeed = Math.min(100, speed + step);
     } else if (diff < -4) {
       // Too humid - decrease fan speed
-      const step = diff < -8 ? 2 : 1;
+      const step = diff < -8 ? 10 : 5;
       newSpeed = Math.max(0, speed - step);
     }
 
