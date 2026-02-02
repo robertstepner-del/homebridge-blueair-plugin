@@ -919,25 +919,37 @@ export class BlueAirAccessory {
       if (speedToSet === undefined) return;
       
       // Night mode activates when fan speed is below 10% (device speed 1 or less)
-      const enableNightMode = speedToSet <= 1;
+      const enableNightMode = speedToSet <= 1 && this.capabilities.hasNightMode;
       
-      if (enableNightMode) {
-        this.platform.log.info(
-          `[${this.device.name}] HomeKit → setFanSpeed: ${hkSpeedToLog}% → enabling Night Mode`,
+      try {
+        if (enableNightMode) {
+          this.platform.log.info(
+            `[${this.device.name}] HomeKit → setFanSpeed: ${hkSpeedToLog}% → enabling Night Mode`,
+          );
+          this.humidityAutoControlEnabled = false;
+          if (this.capabilities.hasAutoMode) {
+            await this.device.setState("automode", false);
+          }
+          await this.device.setState("nightmode", true);
+        } else {
+          this.platform.log.info(
+            `[${this.device.name}] HomeKit → setFanSpeed: ${hkSpeedToLog}% → device speed ${speedToSet}`,
+          );
+          // Manual fan change disables auto humidity control, automode, and night mode
+          this.humidityAutoControlEnabled = false;
+          this.lastManualOverride = Date.now();
+          if (this.capabilities.hasNightMode) {
+            await this.device.setState("nightmode", false);
+          }
+          if (this.capabilities.hasAutoMode) {
+            await this.device.setState("automode", false);
+          }
+          await this.device.setState("fanspeed", speedToSet);
+        }
+      } catch (error) {
+        this.platform.log.error(
+          `[${this.device.name}] Failed to set fan speed: ${error}`,
         );
-        this.humidityAutoControlEnabled = false;
-        await this.device.setState("automode", false);
-        await this.device.setState("nightmode", true);
-      } else {
-        this.platform.log.info(
-          `[${this.device.name}] HomeKit → setFanSpeed: ${hkSpeedToLog}% → device speed ${speedToSet}`,
-        );
-        // Manual fan change disables auto humidity control, automode, and night mode
-        this.humidityAutoControlEnabled = false;
-        this.lastManualOverride = Date.now();
-        await this.device.setState("nightmode", false);
-        await this.device.setState("automode", false);
-        await this.device.setState("fanspeed", speedToSet);
       }
       this.pendingFanSpeed = undefined;
       this.pendingHkSpeed = undefined;
