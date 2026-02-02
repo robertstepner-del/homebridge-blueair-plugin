@@ -290,6 +290,7 @@ export default class BlueAirAwsApi {
     method = "POST",
     headers?: object,
     retries = 3,
+    initialRetry = 3,
   ): Promise<T> {
     const release = await this.mutex.acquire();
     const controller = new AbortController();
@@ -310,22 +311,39 @@ export default class BlueAirAwsApi {
       });
       const json = await response.json();
       if (response.status !== 200) {
+        // Check if this is a rate limit error (status 229)
+        if (response.status === 229) {
+          throw new Error(
+            `RATE_LIMIT:API rate limit exceeded (status ${response.status}): ${JSON.stringify(json)}`,
+          );
+        }
         throw new Error(
           `API call error with status ${response.status}: ${response.statusText}, ${JSON.stringify(json)}`,
         );
       }
       return json as T;
     } catch (error) {
-      if (retries > 0) {
-        return this.apiCall(url, data, method, headers, retries - 1);
+      const isRateLimit = error instanceof Error && error.message.startsWith('RATE_LIMIT:');
+      
+      if (retries > 0 && !isRateLimit) {
+        // Exponential backoff: wait longer between retries
+        const retryDelay = (initialRetry - retries + 1) * 1000;
+        this.logger.debug(`Retrying API call in ${retryDelay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+        return this.apiCall(url, data, method, headers, retries - 1, initialRetry);
       } else {
         if (error instanceof Error && error.name === "AbortError") {
           throw new Error(
-            `API call failed after ${3 - retries} retries with timeout.`,
+            `API call failed after ${initialRetry - retries} retries with timeout.`,
+          );
+        } else if (isRateLimit) {
+          // Don't retry rate limit errors, just throw immediately
+          throw new Error(
+            (error as Error).message.replace('RATE_LIMIT:', ''),
           );
         } else {
           throw new Error(
-            `API call failed after ${3 - retries} retries with error: ${error}`,
+            `API call failed after ${initialRetry - retries} retries with error: ${error}`,
           );
         }
       }

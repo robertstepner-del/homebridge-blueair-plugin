@@ -74,6 +74,9 @@ export class BlueAirPlatform
     this.accessories.push(accessory);
   }
 
+  private retryCount = 0;
+  private readonly MAX_RETRY_COUNT = 5;
+
   async getValidDevicesStatus() {
     this.log.debug("Updating devices states...");
     try {
@@ -91,20 +94,55 @@ export class BlueAirPlatform
         blueAirDevice.emit("update", device);
       }
       this.log.debug("Devices states updated!");
+      // Reset retry count on success
+      this.retryCount = 0;
     } catch (error) {
       const err = error as Error;
-      this.log.warn(
-        "Error getting valid devices status, reason:" +
-          err.message +
-          ". Retrying in 5 seconds...",
-      );
-      this.log.debug("Error stack:", err.stack);
-    } finally {
+      let retryDelay = this.platformConfig.pollingInterval * 1000;
+      
+      // Check if this is a rate limit error
+      if (err.message.includes("rate limit") || err.message.includes("too many calls")) {
+        this.retryCount++;
+        // Exponential backoff for rate limit: double the interval each time, up to 10 minutes
+        retryDelay = Math.min(
+          this.platformConfig.pollingInterval * 1000 * Math.pow(2, this.retryCount),
+          600000 // Max 10 minutes
+        );
+        this.log.warn(
+          `Rate limit exceeded (attempt ${this.retryCount}/${this.MAX_RETRY_COUNT}). ` +
+          `Backing off and retrying in ${Math.round(retryDelay / 1000)} seconds...`,
+        );
+        
+        if (this.retryCount >= this.MAX_RETRY_COUNT) {
+          this.log.error(
+            `Rate limit retry limit reached. Please increase the polling interval in your config ` +
+            `(current: ${this.platformConfig.pollingInterval}s, recommended: ${this.platformConfig.pollingInterval * 2}s or more)`,
+          );
+          // Reset counter but keep long delay
+          this.retryCount = 0;
+        }
+      } else {
+        retryDelay = 5000; // 5 seconds for non-rate-limit errors
+        this.log.warn(
+          "Error getting valid devices status: " +
+            err.message +
+            `. Retrying in ${retryDelay / 1000} seconds...`,
+        );
+        this.log.debug("Error stack:", err.stack);
+      }
+      
       this.polling = setTimeout(
         this.getValidDevicesStatus.bind(this),
-        this.platformConfig.pollingInterval,
+        retryDelay,
       );
+      return;
     }
+    
+    // Schedule next update with normal interval
+    this.polling = setTimeout(
+      this.getValidDevicesStatus.bind(this),
+      this.platformConfig.pollingInterval * 1000,
+    );
   }
 
   async getInitialDeviceStates() {
@@ -188,7 +226,7 @@ export class BlueAirPlatform
         this.polling && clearTimeout(this.polling);
         this.polling = setTimeout(
           this.getValidDevicesStatus.bind(this),
-          this.platformConfig.pollingInterval,
+          this.platformConfig.pollingInterval * 1000,
         );
       }
     });
