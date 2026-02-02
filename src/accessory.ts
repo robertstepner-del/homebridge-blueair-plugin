@@ -259,6 +259,9 @@ export class BlueAirAccessory {
   private germShieldService?: Service;
   private nightModeService?: Service;
   private deviceType: DeviceType;
+  private humidityAutoControlEnabled = false;
+  private lastManualOverride = 0;
+  private lastAutoAdjust = 0;
 
   constructor(
     protected readonly platform: BlueAirPlatform,
@@ -829,6 +832,14 @@ export class BlueAirAccessory {
             this.platform.Characteristic.RotationSpeed,
             this.getOriginalRotationSpeed(),
           );
+          this.service.updateCharacteristic(
+            this.platform.Characteristic.TargetRelativeHumidity,
+            this.getTargetRelativeHumidity(),
+          );
+          this.targetHumidityLightService?.updateCharacteristic(
+            this.platform.Characteristic.Brightness,
+            this.getTargetRelativeHumidityForLightbulb(),
+          );
           this.fanService?.updateCharacteristic(
             this.platform.Characteristic.RotationSpeed,
             this.getRotationSpeed(),
@@ -852,6 +863,8 @@ export class BlueAirAccessory {
           this.platform.Characteristic.On,
           this.getNightMode(),
         );
+        // Attempt humidity-based auto adjustment after state updates
+        this.maybeAutoAdjustFanSpeed();
       }
 
       if (updateAirQuality && this.deviceType === "air-purifier") {
@@ -1004,6 +1017,10 @@ export class BlueAirAccessory {
     this.platform.log.debug(
       `[${this.device.name}] Setting fan speed (preset) to ${hkSpeed}% -> Device Speed ${deviceSpeed}`,
     );
+    // Manual fan change disables auto humidity control and automode
+    this.humidityAutoControlEnabled = false;
+    this.lastManualOverride = Date.now();
+    await this.device.setState("automode", false);
     await this.device.setState("fanspeed", deviceSpeed);
   }
 
@@ -1078,6 +1095,29 @@ export class BlueAirAccessory {
   }
 
   // Humidifier specific
+  private findHumidityTargetAttribute(): string | null {
+    const keys = Object.keys(this.device.state || {});
+    const patterns = [
+      /target\s*hum/i,
+      /hum\s*target/i,
+      /humidity\s*target/i,
+      /target\s*humidity/i,
+      /hum(i)?d(ity)?\s*set(point)?/i,
+      /set\s*hum/i,
+    ];
+
+    for (const k of keys) {
+      for (const p of patterns) {
+        if (p.test(k)) {
+          const v = this.device.state[k];
+          if (typeof v === "number") {
+            return k;
+          }
+        }
+      }
+    }
+    return null;
+  }
 
   getCurrentRelativeHumidity(): CharacteristicValue {
     const humidity = Math.max(
@@ -1088,18 +1128,33 @@ export class BlueAirAccessory {
   }
 
   getTargetRelativeHumidity(): CharacteristicValue {
-    return this.configDev.targetHumidity || 60;
+    const attr = this.findHumidityTargetAttribute();
+    if (attr && typeof this.device.state[attr] === "number") {
+      const v = this.device.state[attr] as number;
+      return Math.max(30, Math.min(80, v));
+    }
+    return Math.max(30, Math.min(80, this.configDev.targetHumidity || 60));
   }
 
   async setTargetRelativeHumidity(value: CharacteristicValue) {
-    const targetHumidity = Math.max(0, Math.min(100, value as number));
+    const desired = Math.max(30, Math.min(80, value as number));
     this.platform.log.debug(
-      `[${this.device.name}] Setting target humidity to ${targetHumidity}%`,
+      `[${this.device.name}] Setting target humidity to ${desired}%`,
     );
+    const attr = this.findHumidityTargetAttribute();
+    if (attr) {
+      await this.device.setState(attr, desired);
+      await this.device.setState("automode", true);
+      this.humidityAutoControlEnabled = true;
+      return;
+    }
+    // Fallback: store locally if device does not expose a writable target
     this.platform.log.info(
-      `[${this.device.name}] Target humidity set to ${targetHumidity}% (storage only - API control pending)`,
+      `[${this.device.name}] Device did not expose a writable target humidity attribute; storing locally at ${desired}%`,
     );
-    // Persist this config if possible or implement API call
+    this.configDev.targetHumidity = desired;
+    await this.device.setState("automode", true);
+    this.humidityAutoControlEnabled = true;
   }
 
   // Map physical range (30-80%) to HomeKit slider (0-100%)
@@ -1134,6 +1189,57 @@ export class BlueAirAccessory {
     );
     
     await this.setTargetRelativeHumidity(targetHumidity);
+  }
+
+  private maybeAutoAdjustFanSpeed() {
+    if (this.deviceType !== "humidifier") return;
+    if (!this.humidityAutoControlEnabled) return;
+    if (this.device.state.standby) return;
+    if (this.device.state.nightmode) return;
+    if (this.device.state.automode === false) return;
+
+    const now = Date.now();
+    if (now - this.lastAutoAdjust < 60000) return; // adjust at most once per minute
+    if (now - this.lastManualOverride < 60000) return; // respect recent manual change
+
+    const current = (this.device.sensorData.humidity ?? 0) as number;
+    const target = this.getTargetRelativeHumidity() as number;
+    if (current === 0) return; // no data
+
+    const diff = target - current; // positive -> need more humidity
+    let speed = (this.device.state.fanspeed ?? 0) as number;
+
+    // Define preset steps for humidifier
+    const presets = [0, 1, 3, 6, 11]; // Off, Sleep, Low, Medium, High
+
+    const pickHigher = () => {
+      for (let i = 0; i < presets.length; i++) {
+        if (speed < presets[i]) return presets[i];
+      }
+      return presets[presets.length - 1];
+    };
+    const pickLower = () => {
+      for (let i = presets.length - 1; i >= 0; i--) {
+        if (speed > presets[i]) return presets[i];
+      }
+      return presets[0];
+    };
+
+    let newSpeed = speed;
+    // Use hysteresis thresholds to avoid oscillation
+    if (diff > 2) {
+      newSpeed = pickHigher();
+    } else if (diff < -4) {
+      newSpeed = pickLower();
+    }
+
+    if (newSpeed !== speed) {
+      this.platform.log.debug(
+        `[${this.device.name}] Auto-adjust fan: humidity ${current}% target ${target}% -> speed ${speed} -> ${newSpeed}`,
+      );
+      this.lastAutoAdjust = now;
+      void this.device.setState("fanspeed", newSpeed);
+    }
   }
 
   getCurrentHumidifierState(): CharacteristicValue {
