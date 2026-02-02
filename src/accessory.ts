@@ -249,6 +249,7 @@ type DeviceType = "humidifier" | "air-purifier";
 
 export class BlueAirAccessory {
   private service!: Service;
+  private fanService?: Service;
   private filterMaintenanceService?: Service;
   private humidityService?: Service;
   private airQualityService?: Service;
@@ -403,6 +404,30 @@ export class BlueAirAccessory {
       .setProps({ minValue: 0, maxValue: 11, minStep: 1 })
       .onGet(this.getRotationSpeed.bind(this))
       .onSet(this.setRotationSpeed.bind(this));
+
+    // setup separate Fan service for visibility in Home app
+    this.fanService =
+      this.accessory.getService(this.platform.Service.Fanv2) ||
+      this.accessory.addService(this.platform.Service.Fanv2, "Fan", "Fan");
+
+    this.fanService.setCharacteristic(
+      this.platform.Characteristic.Name,
+      this.configDev.name + " Fan",
+    );
+
+    this.fanService
+      .getCharacteristic(this.platform.Characteristic.Active)
+      .onGet(this.getActive.bind(this))
+      .onSet(this.setActive.bind(this));
+
+    this.fanService
+      .getCharacteristic(this.platform.Characteristic.RotationSpeed)
+      .setProps({ minValue: 0, maxValue: 11, minStep: 1 })
+      .onGet(this.getRotationSpeed.bind(this))
+      .onSet(this.setRotationSpeed.bind(this));
+
+    // Link the service for better UI grouping
+    this.service.addLinkedService(this.fanService);
 
     this.service
       .getCharacteristic(this.platform.Characteristic.LockPhysicalControls)
@@ -631,6 +656,10 @@ export class BlueAirAccessory {
             this.platform.Characteristic.RotationSpeed,
             this.getRotationSpeed(),
           );
+          this.fanService?.updateCharacteristic(
+            this.platform.Characteristic.RotationSpeed,
+            this.getRotationSpeed(),
+          );
           if (this.deviceType === "air-purifier") {
             this.service.updateCharacteristic(
               this.platform.Characteristic.CurrentAirPurifierState,
@@ -757,6 +786,10 @@ export class BlueAirAccessory {
             this.getCurrentRelativeHumidity(),
           );
           this.service.updateCharacteristic(
+            this.platform.Characteristic.RotationSpeed,
+            this.getRotationSpeed(),
+          );
+          this.fanService?.updateCharacteristic(
             this.platform.Characteristic.RotationSpeed,
             this.getRotationSpeed(),
           );

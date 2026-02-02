@@ -65,7 +65,10 @@ export class BlueAirPlatform
     this.api.on("didFinishLaunching", async () => {
       await this.getInitialDeviceStates();
 
-      this.getValidDevicesStatus();
+      // Add a small delay before starting polling to reduce API pressure
+      setTimeout(() => {
+        this.getValidDevicesStatus();
+      }, 5000); // 5 second delay
     });
   }
 
@@ -145,7 +148,7 @@ export class BlueAirPlatform
     );
   }
 
-  async getInitialDeviceStates() {
+  async getInitialDeviceStates(retryCount = 0, maxRetries = 5) {
     this.log.info("Getting initial device states...");
     try {
       await this.blueAirApi.login();
@@ -184,7 +187,41 @@ export class BlueAirPlatform
 
       this.log.info("All configured devices have been added!");
     } catch (error) {
-      this.log.error("Error getting initial device states:", error);
+      const err = error as Error;
+      
+      // Check if this is a rate limit error
+      if (err.message.includes("rate limit") || err.message.includes("too many calls")) {
+        if (retryCount < maxRetries) {
+          // Exponential backoff: 30s, 60s, 120s, 240s, 480s
+          const retryDelay = 30000 * Math.pow(2, retryCount);
+          this.log.warn(
+            `Rate limit during initialization (attempt ${retryCount + 1}/${maxRetries}). ` +
+            `Retrying in ${retryDelay / 1000} seconds...`,
+          );
+          
+          setTimeout(async () => {
+            await this.getInitialDeviceStates(retryCount + 1, maxRetries);
+          }, retryDelay);
+          return;
+        } else {
+          this.log.error(
+            `Failed to initialize devices after ${maxRetries} attempts due to rate limiting. ` +
+            `Please wait a few minutes and restart Homebridge, or increase the polling interval.`,
+          );
+          return;
+        }
+      }
+      
+      // For non-rate-limit errors, retry once after 10 seconds
+      if (retryCount === 0) {
+        this.log.error("Error getting initial device states:", err.message);
+        this.log.warn("Retrying in 10 seconds...");
+        setTimeout(async () => {
+          await this.getInitialDeviceStates(1, 1);
+        }, 10000);
+      } else {
+        this.log.error("Failed to get initial device states after retry:", err.message);
+      }
     }
   }
 
