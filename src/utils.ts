@@ -1,5 +1,7 @@
 // Combined utils from platformUtils.ts and settings.ts
 
+import { BlueAirDeviceState, BlueAirDeviceSensorData } from "./api/BlueAirAwsApi";
+
 export type Config = {
   name: string;
   username: string;
@@ -20,18 +22,59 @@ export type DiscoveredDevice = {
   mac: string;
 };
 
+/**
+ * Device capabilities detected dynamically from state keys
+ */
 export type DeviceCapabilities = {
-  hasAirQuality: boolean;
-  hasTemperature: boolean;
-  hasHumidity: boolean;
-  hasGermShield: boolean;
+  hasBrightness: boolean;
+  hasNightLight: boolean;
   hasNightMode: boolean;
-  hasLED: boolean;
-  hasFilterMaintenance: boolean;
-  hasCO2Sensor: boolean;
-  hasNO2Sensor: boolean;
-  hasOzoneSensor: boolean;
+  hasAutoMode: boolean;
+  hasHumidity: boolean;
+  hasHumidityTarget: boolean;
+  hasWaterLevel: boolean;
+  hasTemperature: boolean;
+  hasAirQuality: boolean;
+  hasGermShield: boolean;
+  hasFilterUsage: boolean;
+  hasChildLock: boolean;
+  hasFanSpeed: boolean;
 };
+
+/**
+ * Detect device capabilities from available state keys and sensor data
+ */
+export function detectCapabilities(
+  state: Partial<BlueAirDeviceState>,
+  sensors: Partial<BlueAirDeviceSensorData>,
+): DeviceCapabilities {
+  return {
+    hasBrightness: "brightness" in state,
+    hasNightLight: "nlbrightness" in state,
+    hasNightMode: "nightmode" in state,
+    hasAutoMode: "automode" in state,
+    hasWaterLevel: "wlevel" in state,
+    hasGermShield: "germshield" in state,
+    hasFilterUsage: "filterusage" in state,
+    hasChildLock: "childlock" in state,
+    hasFanSpeed: "fanspeed" in state,
+    hasHumidityTarget: "autorh" in state || 
+      Object.keys(state).some(k => /target.*hum|hum.*target|humidity.*set/i.test(k)),
+    hasTemperature: "temperature" in sensors && sensors.temperature !== undefined,
+    hasHumidity: "humidity" in sensors && sensors.humidity !== undefined,
+    hasAirQuality: "pm2_5" in sensors || "pm10" in sensors || "voc" in sensors,
+  };
+}
+
+/**
+ * Format capabilities for logging
+ */
+export function formatCapabilities(capabilities: DeviceCapabilities): string {
+  return Object.entries(capabilities)
+    .filter(([, v]) => v)
+    .map(([k]) => k.replace("has", ""))
+    .join(", ") || "none";
+}
 
 export type DeviceConfig = {
   id: string;
@@ -79,178 +122,3 @@ export const defaultConfig: Config = {
 
 export const PLATFORM_NAME = "blueair-purifier";
 export const PLUGIN_NAME = "homebridge-blueair-purifier";
-
-// Device capability mapping based on model name and type
-export const DEVICE_CAPABILITIES: Record<string, DeviceCapabilities> = {
-  // Blue Pure series
-  "blue pure 211i max": {
-    hasAirQuality: true,
-    hasTemperature: false,
-    hasHumidity: false,
-    hasGermShield: false,
-    hasNightMode: true,
-    hasLED: true,
-    hasFilterMaintenance: true,
-    hasCO2Sensor: false,
-    hasNO2Sensor: false,
-    hasOzoneSensor: false,
-  },
-  "blue pure 311i max": {
-    hasAirQuality: true,
-    hasTemperature: false,
-    hasHumidity: false,
-    hasGermShield: false,
-    hasNightMode: true,
-    hasLED: true,
-    hasFilterMaintenance: true,
-    hasCO2Sensor: false,
-    hasNO2Sensor: false,
-    hasOzoneSensor: false,
-  },
-  "blue pure 311i+ max": {
-    hasAirQuality: true,
-    hasTemperature: false,
-    hasHumidity: false,
-    hasGermShield: false,
-    hasNightMode: true,
-    hasLED: true,
-    hasFilterMaintenance: true,
-    hasCO2Sensor: false,
-    hasNO2Sensor: false,
-    hasOzoneSensor: false,
-  },
-  "blue pure 411i max": {
-    hasAirQuality: true,
-    hasTemperature: false,
-    hasHumidity: false,
-    hasGermShield: false,
-    hasNightMode: true,
-    hasLED: true,
-    hasFilterMaintenance: true,
-    hasCO2Sensor: false,
-    hasNO2Sensor: false,
-    hasOzoneSensor: false,
-  },
-  "blue pure 511i max": {
-    hasAirQuality: true,
-    hasTemperature: false,
-    hasHumidity: false,
-    hasGermShield: false,
-    hasNightMode: true,
-    hasLED: true,
-    hasFilterMaintenance: true,
-    hasCO2Sensor: false,
-    hasNO2Sensor: false,
-    hasOzoneSensor: false,
-  },
-  // HealthProtect series
-  healthprotect: {
-    hasAirQuality: true,
-    hasTemperature: true,
-    hasHumidity: false,
-    hasGermShield: true,
-    hasNightMode: true,
-    hasLED: true,
-    hasFilterMaintenance: true,
-    hasCO2Sensor: false,
-    hasNO2Sensor: false,
-    hasOzoneSensor: false,
-  },
-  // DustMagnet series
-  "dustmagnet 5440i": {
-    hasAirQuality: true,
-    hasTemperature: false,
-    hasHumidity: false,
-    hasGermShield: false,
-    hasNightMode: true,
-    hasLED: true,
-    hasFilterMaintenance: true,
-    hasCO2Sensor: false,
-    hasNO2Sensor: false,
-    hasOzoneSensor: false,
-  },
-  // Protect series
-  "protect 7470i": {
-    hasAirQuality: true,
-    hasTemperature: false,
-    hasHumidity: false,
-    hasGermShield: false,
-    hasNightMode: true,
-    hasLED: true,
-    hasFilterMaintenance: true,
-    hasCO2Sensor: false,
-    hasNO2Sensor: false,
-    hasOzoneSensor: false,
-  },
-};
-
-/**
- * Get device capabilities by model name
- * Falls back to default air purifier capabilities if not found
- */
-export function getDeviceCapabilities(
-  modelName?: string,
-  deviceType?: string,
-): DeviceCapabilities {
-  if (!modelName) {
-    // Default air purifier capabilities
-    return {
-      hasAirQuality: true,
-      hasTemperature: false,
-      hasHumidity: false,
-      hasGermShield: false,
-      hasNightMode: true,
-      hasLED: true,
-      hasFilterMaintenance: true,
-      hasCO2Sensor: false,
-      hasNO2Sensor: false,
-      hasOzoneSensor: false,
-    };
-  }
-
-  const normalizedModel = (modelName || "").toLowerCase();
-
-  // Check for exact match first
-  if (DEVICE_CAPABILITIES[normalizedModel]) {
-    return DEVICE_CAPABILITIES[normalizedModel];
-  }
-
-  // Check for partial matches (e.g., "healthprotect" in device name)
-  for (const [key, capabilities] of Object.entries(DEVICE_CAPABILITIES)) {
-    if (normalizedModel.includes(key) || key.includes(normalizedModel)) {
-      return capabilities;
-    }
-  }
-
-  // Default based on device type if provided
-  if (deviceType) {
-    if (deviceType.toLowerCase().includes("humidifier")) {
-      return {
-        hasAirQuality: true,
-        hasTemperature: false,
-        hasHumidity: true,
-        hasGermShield: false,
-        hasNightMode: true,
-        hasLED: true,
-        hasFilterMaintenance: false,
-        hasCO2Sensor: false,
-        hasNO2Sensor: false,
-        hasOzoneSensor: false,
-      };
-    }
-  }
-
-  // Return default air purifier capabilities
-  return {
-    hasAirQuality: true,
-    hasTemperature: false,
-    hasHumidity: false,
-    hasGermShield: false,
-    hasNightMode: true,
-    hasLED: true,
-    hasFilterMaintenance: true,
-    hasCO2Sensor: false,
-    hasNO2Sensor: false,
-    hasOzoneSensor: false,
-  };
-}

@@ -8,7 +8,7 @@ import {
   Characteristic,
 } from "homebridge";
 
-import { PLATFORM_NAME, PLUGIN_NAME, Config, defaultConfig, getDeviceCapabilities } from "./utils";
+import { PLATFORM_NAME, PLUGIN_NAME, Config, defaultConfig } from "./utils";
 import { defaultsDeep } from "lodash";
 import BlueAirAwsApi, { BlueAirDeviceStatus, DEVICE_TYPES } from "./api/BlueAirAwsApi";
 import { BlueAirDevice, BlueAirAccessory } from "./accessory";

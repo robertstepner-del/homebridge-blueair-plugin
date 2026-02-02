@@ -7,7 +7,7 @@ import {
 } from "./api/BlueAirAwsApi";
 import { Mutex } from "async-mutex";
 import { CharacteristicValue, PlatformAccessory, Service, Characteristic, WithUUID } from "homebridge";
-import { DeviceConfig } from "./utils";
+import { DeviceConfig, DeviceCapabilities, detectCapabilities, formatCapabilities } from "./utils";
 import type { BlueAirPlatform } from "./platform";
 
 type AQILevels = {
@@ -264,6 +264,23 @@ export class BlueAirAccessory {
   private fanSpeedDebounceTimer?: ReturnType<typeof setTimeout>;
   private pendingFanSpeed?: number;
   private pendingHkSpeed?: number;
+  
+  // Dynamic capabilities detected from device state keys
+  private capabilities: DeviceCapabilities = {
+    hasBrightness: false,
+    hasNightLight: false,
+    hasNightMode: false,
+    hasAutoMode: false,
+    hasHumidity: false,
+    hasHumidityTarget: false,
+    hasWaterLevel: false,
+    hasTemperature: false,
+    hasAirQuality: false,
+    hasGermShield: false,
+    hasFilterUsage: false,
+    hasChildLock: false,
+    hasFanSpeed: false,
+  };
 
   constructor(
     protected readonly platform: BlueAirPlatform,
@@ -273,11 +290,19 @@ export class BlueAirAccessory {
     deviceType: DeviceType = "air-purifier",
   ) {
     this.deviceType = deviceType;
+    
+    // Detect capabilities from available state keys
+    this.initCapabilities();
 
     this.setupAccessoryInformation();
     this.setupMainService();
     this.setupOptionalServices();
     this.setupEventListeners();
+  }
+
+  private initCapabilities() {
+    this.capabilities = detectCapabilities(this.device.state, this.device.sensorData);
+    this.platform.log.info(`[${this.device.name}] Detected capabilities: ${formatCapabilities(this.capabilities)}`);
   }
 
   private setupAccessoryInformation() {
@@ -522,12 +547,12 @@ export class BlueAirAccessory {
       () => {},
     );
 
-    // Display brightness - controls the main display LED (uses 'brightness' API variable)
+    // Display brightness - only if device has brightness capability
     this.setupOptionalService(
       S.Lightbulb,
       "DisplayBrightness",
       "Display Brightness",
-      this.configDev.led !== false,
+      this.capabilities.hasBrightness && this.configDev.led !== false,
       (svc) => {
         svc.setCharacteristic(C.ConfiguredName, `${this.device.name} Display`);
         svc.getCharacteristic(C.On).onGet(this.getDisplayOn.bind(this)).onSet(this.setDisplayOn.bind(this));
@@ -535,28 +560,25 @@ export class BlueAirAccessory {
       },
     );
 
-    // Night light brightness - controls the night light (uses 'nlbrightness' API variable)
-    // Only available on humidifiers
-    if (this.deviceType === "humidifier") {
-      this.setupOptionalService(
-        S.Lightbulb,
-        "NightLight",
-        "Night Light",
-        this.configDev.nightLight !== false,
-        (svc) => {
-          svc.setCharacteristic(C.ConfiguredName, `${this.device.name} Night Light`);
-          svc.getCharacteristic(C.On).onGet(this.getNightLightOn.bind(this)).onSet(this.setNightLightOn.bind(this));
-          svc.getCharacteristic(C.Brightness).onGet(this.getNightLightBrightness.bind(this)).onSet(this.setNightLightBrightness.bind(this));
-        },
-      );
-    }
+    // Night light brightness - only if device has nlbrightness capability
+    this.setupOptionalService(
+      S.Lightbulb,
+      "NightLight",
+      "Night Light",
+      this.capabilities.hasNightLight && this.configDev.nightLight !== false,
+      (svc) => {
+        svc.setCharacteristic(C.ConfiguredName, `${this.device.name} Night Light`);
+        svc.getCharacteristic(C.On).onGet(this.getNightLightOn.bind(this)).onSet(this.setNightLightOn.bind(this));
+        svc.getCharacteristic(C.Brightness).onGet(this.getNightLightBrightness.bind(this)).onSet(this.setNightLightBrightness.bind(this));
+      },
+    );
 
-    // Temperature sensor - default to true if not explicitly set
+    // Temperature sensor - only if device has temperature data
     this.setupOptionalService(
       S.TemperatureSensor,
       "Temperature",
       "Temperature",
-      this.configDev.temperatureSensor !== false,
+      this.capabilities.hasTemperature && this.configDev.temperatureSensor !== false,
       (svc) => {
         svc.getCharacteristic(C.CurrentTemperature).onGet(this.getCurrentTemperature.bind(this));
       },
@@ -571,25 +593,23 @@ export class BlueAirAccessory {
       () => {},
     );
 
-    // Humidity sensor (humidifier only) - default to true if not explicitly set
-    if (this.deviceType === "humidifier") {
-      this.setupOptionalService(
-        S.HumiditySensor,
-        "Humidity",
-        "Humidity",
-        this.configDev.humiditySensor !== false,
-        (svc) => {
-          svc.getCharacteristic(C.CurrentRelativeHumidity).onGet(this.getCurrentRelativeHumidity.bind(this));
-        },
-      );
-    }
+    // Humidity sensor - only if device has humidity data
+    this.setupOptionalService(
+      S.HumiditySensor,
+      "Humidity",
+      "Humidity",
+      this.capabilities.hasHumidity && this.configDev.humiditySensor !== false,
+      (svc) => {
+        svc.getCharacteristic(C.CurrentRelativeHumidity).onGet(this.getCurrentRelativeHumidity.bind(this));
+      },
+    );
 
-    // Air quality sensor - only for air purifiers (humidifiers don't have these sensors)
+    // Air quality sensor - only if device has air quality data
     this.setupOptionalService(
       S.AirQualitySensor,
       "AirQuality",
       "Air Quality",
-      this.deviceType === "air-purifier" && this.configDev.airQualitySensor !== false,
+      this.capabilities.hasAirQuality && this.configDev.airQualitySensor !== false,
       (svc) => {
         svc.getCharacteristic(C.AirQuality).onGet(this.getAirQuality.bind(this));
         svc.getCharacteristic(C.PM2_5Density).onGet(this.getPM2_5Density.bind(this));
@@ -598,13 +618,12 @@ export class BlueAirAccessory {
       },
     );
 
-    // Germ shield switch - only for air purifiers
-    // Pass false for humidifiers to remove any existing cached service
+    // Germ shield switch - only if device has germshield capability
     this.setupOptionalService(
       S.Switch,
       "GermShield",
       "Germ Shield",
-      this.deviceType === "air-purifier" && this.configDev.germShield !== false,
+      this.capabilities.hasGermShield && this.configDev.germShield !== false,
       (svc) => {
         svc.setCharacteristic(C.ConfiguredName, `${this.device.name} Germ Shield`);
         svc.getCharacteristic(C.On).onGet(this.getGermShield.bind(this)).onSet(this.setGermShield.bind(this));
