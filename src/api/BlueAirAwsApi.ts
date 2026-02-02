@@ -258,7 +258,7 @@ export default class BlueAirAwsApi {
   ): Promise<void> {
     await this.checkTokenExpiration();
 
-    // this.logger.debug(`setDeviceStatus: ${uuid} ${state} ${value}`);
+    this.logger.debug(`setDeviceStatus: ${uuid} ${state} ${value}`);
 
     const body: BlueAirSetStateBody = {
       n: state,
@@ -272,9 +272,8 @@ export default class BlueAirAwsApi {
       throw new Error(`setDeviceStatus: unknown value type ${typeof value}`);
     }
 
-    // const response = await this.apiCall(`/${uuid}/a/${state}`, body);
-    await this.apiCall(`/${uuid}/a/${state}`, body);
-    // this.logger.debug(`setDeviceStatus response: ${JSON.stringify(response)}`);
+    const response = await this.apiCall(`/${uuid}/a/${state}`, body);
+    this.logger.debug(`setDeviceStatus response: ${JSON.stringify(response)}`);
   }
 
   private async getAwsAccessToken(
