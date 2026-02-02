@@ -38,6 +38,11 @@ export type BlueAirDeviceState = {
   filterusage?: number;
   disinfection?: boolean;
   disinftime?: number;
+  // Humidifier specific
+  wlevel?: number;      // Water level (0-100)
+  autorh?: number;      // Auto target relative humidity
+  wickusage?: number;   // Wick filter usage
+  nlbrightness?: number; // Night light brightness
   [key: string]: string | number | boolean | undefined;
 };
 

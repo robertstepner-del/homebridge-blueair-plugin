@@ -39,14 +39,8 @@ const AQI: { [key: string]: AQILevels } = {
   },
 };
 
-// Fan speed presets for humidifier: Sleep=0, Low=1, Medium=2, High=3
-const FAN_SPEED_PRESETS = [0, 1, 2, 3] as const;
-const FAN_SPEED_LABELS: Record<number, string> = {
-  0: "Sleep",
-  1: "Low",
-  2: "Medium",
-  3: "High",
-};
+// Fan speed for humidifier: 0-11 range (0=off/sleep, 11=max)
+const FAN_SPEED_MAX = 11;
 
 // Humidity target range
 const HUMIDITY_MIN = 30;
@@ -661,6 +655,18 @@ export class BlueAirAccessory {
             this.service.updateCharacteristic(C.TargetHumidifierDehumidifierState, this.getTargetHumidifierState());
           }
           break;
+        case "wlevel":
+          // Update water level for humidifiers
+          if (this.deviceType === "humidifier") {
+            this.service.updateCharacteristic(C.WaterLevel, this.getWaterLevel());
+          }
+          break;
+        case "autorh":
+          // Update target humidity for humidifiers
+          if (this.deviceType === "humidifier") {
+            this.service.updateCharacteristic(C.TargetRelativeHumidity, this.getTargetRelativeHumidity());
+          }
+          break;
       }
     }
   }
@@ -812,39 +818,28 @@ export class BlueAirAccessory {
     await this.device.setState("childlock", isLocked);
   }
 
-  // Fan speed mapping: Sleep(0)=25%, 1=50%, 2=75%, 3=100%
+  // Fan speed mapping: 0-100% HomeKit <-> 0-11 device
   getRotationSpeed(): CharacteristicValue {
     const rawSpeed = this.device.state.fanspeed ?? 0;
     if (this.device.state.standby !== false) return 0;
-    if (rawSpeed <= 0) return 25; // Sleep
-    if (rawSpeed === 1) return 50;
-    if (rawSpeed === 2) return 75;
-    return 100; // 3 or higher treated as 3
+    // Map device 0-11 to HomeKit 0-100%
+    return Math.round((rawSpeed / FAN_SPEED_MAX) * 100);
   }
 
   async setRotationSpeed(value: CharacteristicValue) {
     this.platform.log.debug(`[${this.device.name}] setRotationSpeed called with value: ${value}`);
     const hkSpeed = Math.max(0, Math.min(100, value as number));
-    let deviceSpeed = 0;
-    // Map 0–100% to Sleep/1/2/3
-    if (hkSpeed <= 25) deviceSpeed = 0; // Sleep
-    else if (hkSpeed <= 50) deviceSpeed = 1;
-    else if (hkSpeed <= 75) deviceSpeed = 2;
-    else deviceSpeed = 3;
+    // Map HomeKit 0-100% to device 0-11
+    const deviceSpeed = Math.round((hkSpeed / 100) * FAN_SPEED_MAX);
 
-    const speedLabel = this.getFanSpeedLabel(deviceSpeed);
     this.platform.log.info(
-      `[${this.device.name}] HomeKit → setRotationSpeed: ${hkSpeed}% → ${speedLabel} (device speed ${deviceSpeed}) - disabling auto mode`,
+      `[${this.device.name}] HomeKit → setRotationSpeed: ${hkSpeed}% → device speed ${deviceSpeed} - disabling auto mode`,
     );
     // Manual fan change disables auto humidity control and automode
     this.humidityAutoControlEnabled = false;
     this.lastManualOverride = Date.now();
     await this.device.setState("automode", false);
     await this.device.setState("fanspeed", deviceSpeed);
-  }
-
-  private getFanSpeedLabel(speed: number): string {
-    return FAN_SPEED_LABELS[speed] ?? `Speed ${speed}`;
   }
 
   getFilterChangeIndication(): CharacteristicValue {
@@ -910,6 +905,7 @@ export class BlueAirAccessory {
 
     const keys = Object.keys(this.device.state || {});
     const patterns = [
+      /^autorh$/i,          // BlueAir humidifier uses "autorh"
       /target\s*hum/i,
       /hum\s*target/i,
       /humidity\s*target/i,
@@ -991,29 +987,19 @@ export class BlueAirAccessory {
     if (current === 0) return; // no data
 
     const diff = target - current; // positive -> need more humidity
-    let speed = (this.device.state.fanspeed ?? 0) as number;
-
-    const presets = FAN_SPEED_PRESETS;
-
-    const pickHigher = () => {
-      for (let i = 0; i < presets.length; i++) {
-        if (speed < presets[i]) return presets[i];
-      }
-      return presets[presets.length - 1];
-    };
-    const pickLower = () => {
-      for (let i = presets.length - 1; i >= 0; i--) {
-        if (speed > presets[i]) return presets[i];
-      }
-      return presets[0];
-    };
+    const speed = (this.device.state.fanspeed ?? 0) as number;
 
     let newSpeed = speed;
     // Use hysteresis thresholds to avoid oscillation
+    // Adjust by 1-2 steps at a time based on humidity difference
     if (diff > 2) {
-      newSpeed = pickHigher();
+      // Need more humidity - increase fan speed
+      const step = diff > 5 ? 2 : 1;
+      newSpeed = Math.min(FAN_SPEED_MAX, speed + step);
     } else if (diff < -4) {
-      newSpeed = pickLower();
+      // Too humid - decrease fan speed
+      const step = diff < -8 ? 2 : 1;
+      newSpeed = Math.max(0, speed - step);
     }
 
     if (newSpeed !== speed) {
@@ -1075,10 +1061,12 @@ export class BlueAirAccessory {
   }
 
   getWaterLevel(): CharacteristicValue {
-    // Water level is not directly available from the API
-    // We could estimate based on runtime or other factors
-    // For now, return a default high value (100) to indicate no water issue
-    // This could be enhanced later with actual tank level if available
+    // Use wlevel from device state if available
+    const wlevel = this.device.state.wlevel;
+    if (typeof wlevel === "number") {
+      return Math.max(0, Math.min(100, wlevel));
+    }
+    // Fallback if not available
     return 100;
   }
 }
