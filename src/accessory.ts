@@ -166,11 +166,8 @@ export class BlueAirDevice extends EventEmitter {
   }
 
   public async setState(attribute: string, value: number | boolean) {
-    if (attribute in this.state === false) {
-      throw new Error(`Invalid state: ${attribute}`);
-    }
-
-    if (this.state[attribute] === value) {
+    // Skip if value is unchanged (only check if attribute exists)
+    if (attribute in this.state && this.state[attribute] === value) {
       return;
     }
 
@@ -387,7 +384,7 @@ export class BlueAirAccessory {
 
     this.service
       .getCharacteristic(this.platform.Characteristic.TargetRelativeHumidity)
-      .setProps({ minValue: HUMIDITY_MIN, maxValue: HUMIDITY_MAX, minStep: 1 })
+      .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
       .onGet(this.getTargetRelativeHumidity.bind(this))
       .onSet(this.setTargetRelativeHumidity.bind(this));
 
@@ -505,12 +502,12 @@ export class BlueAirAccessory {
     const C = this.platform.Characteristic;
     const S = this.platform.Service;
 
-    // LED service
+    // LED service - default to true if not explicitly set
     this.setupOptionalService(
       S.Lightbulb,
       "Led",
       "Led",
-      this.configDev.led,
+      this.configDev.led !== false,
       (svc) => {
         svc.setCharacteristic(C.ConfiguredName, `${this.device.name} Led`);
         svc.getCharacteristic(C.On).onGet(this.getLedOn.bind(this)).onSet(this.setLedOn.bind(this));
@@ -518,48 +515,48 @@ export class BlueAirAccessory {
       },
     );
 
-    // Temperature sensor
+    // Temperature sensor - default to true if not explicitly set
     this.setupOptionalService(
       S.TemperatureSensor,
       "Temperature",
       "Temperature",
-      this.configDev.temperatureSensor,
+      this.configDev.temperatureSensor !== false,
       (svc) => {
         svc.getCharacteristic(C.CurrentTemperature).onGet(this.getCurrentTemperature.bind(this));
       },
     );
 
-    // Night mode switch
+    // Night mode switch - default to true if not explicitly set
     this.setupOptionalService(
       S.Switch,
       "NightMode",
       "Night Mode",
-      this.configDev.nightMode,
+      this.configDev.nightMode !== false,
       (svc) => {
         svc.setCharacteristic(C.ConfiguredName, `${this.device.name} Night Mode`);
         svc.getCharacteristic(C.On).onGet(this.getNightMode.bind(this)).onSet(this.setNightMode.bind(this));
       },
     );
 
-    // Humidity sensor (humidifier only)
+    // Humidity sensor (humidifier only) - default to true if not explicitly set
     if (this.deviceType === "humidifier") {
       this.setupOptionalService(
         S.HumiditySensor,
         "Humidity",
         "Humidity",
-        this.configDev.humiditySensor,
+        this.configDev.humiditySensor !== false,
         (svc) => {
           svc.getCharacteristic(C.CurrentRelativeHumidity).onGet(this.getCurrentRelativeHumidity.bind(this));
         },
       );
     }
 
-    // Air quality sensor
+    // Air quality sensor - default to true if not explicitly set
     this.setupOptionalService(
       S.AirQualitySensor,
       "AirQuality",
       "Air Quality",
-      this.configDev.airQualitySensor,
+      this.configDev.airQualitySensor !== false,
       (svc) => {
         svc.getCharacteristic(C.AirQuality).onGet(this.getAirQuality.bind(this));
         svc.getCharacteristic(C.PM2_5Density).onGet(this.getPM2_5Density.bind(this));
@@ -568,12 +565,12 @@ export class BlueAirAccessory {
       },
     );
 
-    // Germ shield switch
+    // Germ shield switch - default to true if not explicitly set
     this.setupOptionalService(
       S.Switch,
       "GermShield",
       "Germ Shield",
-      this.configDev.germShield,
+      this.configDev.germShield !== false,
       (svc) => {
         svc.setCharacteristic(C.ConfiguredName, `${this.device.name} Germ Shield`);
         svc.getCharacteristic(C.On).onGet(this.getGermShield.bind(this)).onSet(this.setGermShield.bind(this));
