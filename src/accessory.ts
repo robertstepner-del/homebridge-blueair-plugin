@@ -383,6 +383,47 @@ export class BlueAirAccessory {
         this.platform.Characteristic.CurrentHumidifierDehumidifierState,
       )
       .onGet(this.getCurrentHumidifierState.bind(this));
+
+    this.service
+      .getCharacteristic(
+        this.platform.Characteristic.TargetHumidifierDehumidifierState,
+      )
+      .setProps({
+        validValues: [
+          this.platform.Characteristic.TargetHumidifierDehumidifierState
+            .HUMIDIFIER_OR_DEHUMIDIFIER,
+          this.platform.Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER,
+        ],
+      })
+      .onGet(this.getTargetHumidifierState.bind(this))
+      .onSet(this.setTargetHumidifierState.bind(this));
+
+    this.service
+      .getCharacteristic(this.platform.Characteristic.RotationSpeed)
+      .setProps({ minValue: 0, maxValue: 11, minStep: 1 })
+      .onGet(this.getRotationSpeed.bind(this))
+      .onSet(this.setRotationSpeed.bind(this));
+
+    this.service
+      .getCharacteristic(this.platform.Characteristic.LockPhysicalControls)
+      .onGet(this.getLockPhysicalControls.bind(this))
+      .onSet(this.setLockPhysicalControls.bind(this));
+
+    this.service
+      .getCharacteristic(this.platform.Characteristic.WaterLevel)
+      .onGet(this.getWaterLevel.bind(this));
+
+    this.filterMaintenanceService =
+      this.accessory.getService(this.platform.Service.FilterMaintenance) ||
+      this.accessory.addService(this.platform.Service.FilterMaintenance);
+
+    this.filterMaintenanceService
+      .getCharacteristic(this.platform.Characteristic.FilterChangeIndication)
+      .onGet(this.getFilterChangeIndication.bind(this));
+
+    this.filterMaintenanceService
+      .getCharacteristic(this.platform.Characteristic.FilterLifeLevel)
+      .onGet(this.getFilterLifeLevel.bind(this));
   }
 
   private setupOptionalServices() {
@@ -573,7 +614,10 @@ export class BlueAirAccessory {
               this.getTargetAirPurifierState(),
             );
           } else {
-            updateState = true;
+            this.service.updateCharacteristic(
+              this.platform.Characteristic.TargetHumidifierDehumidifierState,
+              this.getTargetHumidifierState(),
+            );
           }
           break;
         case "childlock":
@@ -583,28 +627,31 @@ export class BlueAirAccessory {
           );
           break;
         case "fanspeed":
+          this.service.updateCharacteristic(
+            this.platform.Characteristic.RotationSpeed,
+            this.getRotationSpeed(),
+          );
           if (this.deviceType === "air-purifier") {
             this.service.updateCharacteristic(
-              this.platform.Characteristic.RotationSpeed,
-              this.getRotationSpeed(),
+              this.platform.Characteristic.CurrentAirPurifierState,
+              this.getCurrentAirPurifierState(),
+            );
+          } else {
+            this.service.updateCharacteristic(
+              this.platform.Characteristic.CurrentHumidifierDehumidifierState,
+              this.getCurrentHumidifierState(),
             );
           }
-          this.service.updateCharacteristic(
-            this.platform.Characteristic.CurrentAirPurifierState,
-            this.getCurrentAirPurifierState(),
-          );
           break;
         case "filterusage":
-          if (this.deviceType === "air-purifier") {
-            this.filterMaintenanceService?.updateCharacteristic(
-              this.platform.Characteristic.FilterChangeIndication,
-              this.getFilterChangeIndication(),
-            );
-            this.filterMaintenanceService?.updateCharacteristic(
-              this.platform.Characteristic.FilterLifeLevel,
-              this.getFilterLifeLevel(),
-            );
-          }
+          this.filterMaintenanceService?.updateCharacteristic(
+            this.platform.Characteristic.FilterChangeIndication,
+            this.getFilterChangeIndication(),
+          );
+          this.filterMaintenanceService?.updateCharacteristic(
+            this.platform.Characteristic.FilterLifeLevel,
+            this.getFilterLifeLevel(),
+          );
           break;
         case "temperature":
           this.temperatureService?.updateCharacteristic(
@@ -702,8 +749,16 @@ export class BlueAirAccessory {
             this.getCurrentHumidifierState(),
           );
           this.service.updateCharacteristic(
+            this.platform.Characteristic.TargetHumidifierDehumidifierState,
+            this.getTargetHumidifierState(),
+          );
+          this.service.updateCharacteristic(
             this.platform.Characteristic.CurrentRelativeHumidity,
             this.getCurrentRelativeHumidity(),
+          );
+          this.service.updateCharacteristic(
+            this.platform.Characteristic.RotationSpeed,
+            this.getRotationSpeed(),
           );
         }
 
@@ -948,5 +1003,32 @@ export class BlueAirAccessory {
 
     return this.platform.Characteristic.CurrentHumidifierDehumidifierState
       .INACTIVE;
+  }
+
+  getTargetHumidifierState(): CharacteristicValue {
+    return this.device.state.automode
+      ? this.platform.Characteristic.TargetHumidifierDehumidifierState
+          .HUMIDIFIER_OR_DEHUMIDIFIER
+      : this.platform.Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER;
+  }
+
+  async setTargetHumidifierState(value: CharacteristicValue) {
+    this.platform.log.debug(
+      `[${this.device.name}] Setting target humidifier state to ${value}`,
+    );
+    await this.device.setState(
+      "automode",
+      value ===
+        this.platform.Characteristic.TargetHumidifierDehumidifierState
+          .HUMIDIFIER_OR_DEHUMIDIFIER,
+    );
+  }
+
+  getWaterLevel(): CharacteristicValue {
+    // Water level is not directly available from the API
+    // We could estimate based on runtime or other factors
+    // For now, return a default high value (100) to indicate no water issue
+    // This could be enhanced later with actual tank level if available
+    return 100;
   }
 }
