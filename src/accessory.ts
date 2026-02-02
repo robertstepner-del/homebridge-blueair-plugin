@@ -826,16 +826,16 @@ export class BlueAirAccessory {
   }
 
   // Night light has 3 levels + off:
-  // Device: 0 = off, 98 = bright, 99 = normal, 100 = warm
+  // Device: 0 = off, 1 = warm, 2 = normal, 3 = bright
   // HomeKit: 0 = off, 1-33 = warm, 34-66 = normal, 67-100 = bright
-  private readonly NL_LEVELS = { OFF: 0, BRIGHT: 98, NORMAL: 99, WARM: 100 };
+  private readonly NL_LEVELS = { OFF: 0, WARM: 1, NORMAL: 2, BRIGHT: 3 };
 
   private nlDeviceToHomeKit(deviceValue: number): number {
     switch (deviceValue) {
       case 0: return 0;
-      case 98: return 100; // bright
-      case 99: return 66;  // normal
-      case 100: return 33; // warm
+      case 1: return 33;  // warm
+      case 2: return 66;  // normal
+      case 3: return 100; // bright
       default: return 0;
     }
   }
@@ -849,9 +849,9 @@ export class BlueAirAccessory {
 
   private nlDeviceToName(deviceValue: number): string {
     switch (deviceValue) {
-      case 98: return "Bright";
-      case 99: return "Normal";
-      case 100: return "Warm";
+      case 1: return "Warm";
+      case 2: return "Normal";
+      case 3: return "Bright";
       default: return "Off";
     }
   }
