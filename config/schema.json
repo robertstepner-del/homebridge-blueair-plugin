@@ -76,6 +76,31 @@
               "title": "Serial Number",
               "type": "string"
             },
+            "showFanTile": {
+              "title": "Show Fan Tile",
+              "description": "Adds a separate Fan control tile for better visibility in Home app (Humidifiers).",
+              "type": "boolean",
+              "default": true
+            },
+            "showTargetHumidityTile": {
+              "title": "Show Target Humidity Tile (workaround)",
+              "description": "Adds a Lightbulb tile whose brightness maps to target humidity (30–80%). Helps control target humidity in Home app.",
+              "type": "boolean",
+              "default": true
+            },
+            "defaultTargetHumidity": {
+              "title": "Default Target Humidity (%)",
+              "description": "Used when the device does not expose a writable target humidity attribute. Range 30–80%.",
+              "type": "number",
+              "minimum": 30,
+              "maximum": 80,
+              "default": 60
+            },
+            "targetHumidityAttribute": {
+              "title": "Target Humidity Attribute (override)",
+              "description": "If your device supports a writable target humidity field but auto-detection fails, set the exact state key name here (e.g., 'targethumidity', 'humidity_target').",
+              "type": "string"
+            },
             "filterChangeLevel": {
               "title": "Filter Change Level",
               "description": "Percentage of filter life remaining to trigger a filter change alert.",
@@ -141,6 +166,10 @@
             "devices[].name",
             "devices[].model",
             "devices[].serialNumber",
+            "devices[].showFanTile",
+            "devices[].showTargetHumidityTile",
+            "devices[].defaultTargetHumidity",
+            "devices[].targetHumidityAttribute",
             "devices[].filterChangeLevel",
             "devices[].led",
             "devices[].airQualitySensor",

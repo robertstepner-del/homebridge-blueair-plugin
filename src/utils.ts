@@ -41,6 +41,13 @@ export type DeviceConfig = {
   room?: string;
   filterChangeLevel: number;
   targetHumidity?: number;
+  // Optional manual override for the device state key used to set target humidity
+  // Example values: "targethumidity", "humidity_target", "hum_target"
+  targetHumidityAttribute?: string;
+  // UI controls
+  showFanTile?: boolean; // Show additional Fan tile (Humidifiers)
+  showTargetHumidityTile?: boolean; // Show Target Humidity Lightbulb workaround
+  defaultTargetHumidity?: number; // Preferred target if device does not expose writable target
   led: boolean;
   airQualitySensor: boolean;
   co2Sensor: boolean;
