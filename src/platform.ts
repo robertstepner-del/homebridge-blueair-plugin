@@ -244,17 +244,18 @@ export class BlueAirPlatform
     this.devices.push(blueAirDevice);
 
     blueAirDevice.on("setState", async ({ id, name, attribute, value }) => {
-      // this.log.info(`[${name}] Setting state: ${attribute} = ${value}`);
+      this.log.info(`[${name}] API → Setting ${attribute} = ${value}`);
 
       // Clear polling to avoid conflicts
       this.polling && clearTimeout(this.polling);
       let success = false;
       try {
         await this.blueAirApi.setDeviceStatus(id, attribute, value);
+        this.log.info(`[${name}] API ✓ Successfully set ${attribute} = ${value}`);
         success = true;
       } catch (error) {
         this.log.error(
-          `[${name}] Error setting state: ${attribute} = ${value}`,
+          `[${name}] API ✗ Failed to set ${attribute} = ${value}`,
           error,
         );
       } finally {

@@ -171,6 +171,7 @@ export class BlueAirDevice extends EventEmitter {
       return;
     }
 
+    // Emit setState event - platform will handle API call and logging
     this.emit("setState", { id: this.id, name: this.name, attribute, value });
 
     const release = await this.mutex.acquire();
@@ -361,6 +362,9 @@ export class BlueAirAccessory {
     this.filterMaintenanceService
       .getCharacteristic(this.platform.Characteristic.FilterLifeLevel)
       .onGet(this.getFilterLifeLevel.bind(this));
+
+    // Link for grouping in Home app
+    this.service.addLinkedService(this.filterMaintenanceService);
   }
 
   private setupHumidifierService() {
@@ -399,10 +403,12 @@ export class BlueAirAccessory {
         this.platform.Characteristic.TargetHumidifierDehumidifierState,
       )
       .setProps({
+        // Use DEHUMIDIFIER value as "Sleep" mode (device doesn't dehumidify)
         validValues: [
           this.platform.Characteristic.TargetHumidifierDehumidifierState
-            .HUMIDIFIER_OR_DEHUMIDIFIER,
-          this.platform.Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER,
+            .HUMIDIFIER_OR_DEHUMIDIFIER, // Auto
+          this.platform.Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER, // Manual/Humidify
+          this.platform.Characteristic.TargetHumidifierDehumidifierState.DEHUMIDIFIER, // Sleep
         ],
       })
       .onGet(this.getTargetHumidifierState.bind(this))
@@ -461,11 +467,15 @@ export class BlueAirAccessory {
     this.filterMaintenanceService
       .getCharacteristic(this.platform.Characteristic.FilterLifeLevel)
       .onGet(this.getFilterLifeLevel.bind(this));
+
+    // Link for grouping in Home app
+    this.service.addLinkedService(this.filterMaintenanceService);
   }
 
   /**
    * Helper to set up or remove an optional service based on config.
    * Returns the service if enabled, undefined otherwise.
+   * All optional services are linked to the primary service for grouping in Home app.
    */
   private setupOptionalService(
     serviceConstructor: WithUUID<typeof Service>,
@@ -490,8 +500,11 @@ export class BlueAirAccessory {
       );
       configure(service);
       this.optionalServices.set(subtype, service);
+      // Link to primary service for grouping in Home app
+      this.service.addLinkedService(service);
       return service;
     } else if (existingService) {
+      this.service.removeLinkedService(existingService);
       this.accessory.removeService(existingService);
       this.optionalServices.delete(subtype);
     }
@@ -685,6 +698,8 @@ export class BlueAirAccessory {
       this.service.updateCharacteristic(C.CurrentAirPurifierState, this.getCurrentAirPurifierState());
     } else {
       this.service.updateCharacteristic(C.CurrentHumidifierDehumidifierState, this.getCurrentHumidifierState());
+      // Update target state dropdown (Auto/Manual/Sleep) based on fanspeed
+      this.service.updateCharacteristic(C.TargetHumidifierDehumidifierState, this.getTargetHumidifierState());
     }
   }
 
@@ -716,11 +731,9 @@ export class BlueAirAccessory {
   }
 
   async setActive(value: CharacteristicValue) {
-    this.platform.log.debug(`[${this.device.name}] Setting active to ${value}`);
-    await this.device.setState(
-      "standby",
-      value === this.platform.Characteristic.Active.INACTIVE,
-    );
+    const isActive = value === this.platform.Characteristic.Active.ACTIVE;
+    this.platform.log.info(`[${this.device.name}] HomeKit → setActive: ${isActive ? "ON" : "OFF"}`);
+    await this.device.setState("standby", !isActive);
   }
 
   getCurrentTemperature(): CharacteristicValue {
@@ -736,7 +749,7 @@ export class BlueAirAccessory {
   }
 
   async setLedOn(value: CharacteristicValue) {
-    this.platform.log.debug(`[${this.device.name}] Setting LED on to ${value}`);
+    this.platform.log.info(`[${this.device.name}] HomeKit → setLedOn: ${value ? "ON" : "OFF"}`);
     await this.device.setLedOn(value as boolean);
   }
 
@@ -745,9 +758,7 @@ export class BlueAirAccessory {
   }
 
   async setLedBrightness(value: CharacteristicValue) {
-    this.platform.log.debug(
-      `[${this.device.name}] Setting LED brightness to ${value}`,
-    );
+    this.platform.log.info(`[${this.device.name}] HomeKit → setLedBrightness: ${value}%`);
     await this.device.setState("brightness", value as number);
   }
 
@@ -756,9 +767,7 @@ export class BlueAirAccessory {
   }
 
   async setNightMode(value: CharacteristicValue) {
-    this.platform.log.debug(
-      `[${this.device.name}] Setting night mode to ${value}`,
-    );
+    this.platform.log.info(`[${this.device.name}] HomeKit → setNightMode: ${value ? "ON" : "OFF"}`);
     await this.device.setState("nightmode", value as boolean);
   }
 
@@ -781,13 +790,9 @@ export class BlueAirAccessory {
   }
 
   async setTargetAirPurifierState(value: CharacteristicValue) {
-    this.platform.log.debug(
-      `[${this.device.name}] Setting target air purifier state to ${value}`,
-    );
-    await this.device.setState(
-      "automode",
-      value === this.platform.Characteristic.TargetAirPurifierState.AUTO,
-    );
+    const isAuto = value === this.platform.Characteristic.TargetAirPurifierState.AUTO;
+    this.platform.log.info(`[${this.device.name}] HomeKit → setTargetAirPurifierState: ${isAuto ? "AUTO" : "MANUAL"}`);
+    await this.device.setState("automode", isAuto);
   }
 
   getLockPhysicalControls(): CharacteristicValue {
@@ -797,14 +802,9 @@ export class BlueAirAccessory {
   }
 
   async setLockPhysicalControls(value: CharacteristicValue) {
-    this.platform.log.debug(
-      `[${this.device.name}] Setting lock physical controls to ${value}`,
-    );
-    await this.device.setState(
-      "childlock",
-      value ===
-        this.platform.Characteristic.LockPhysicalControls.CONTROL_LOCK_ENABLED,
-    );
+    const isLocked = value === this.platform.Characteristic.LockPhysicalControls.CONTROL_LOCK_ENABLED;
+    this.platform.log.info(`[${this.device.name}] HomeKit → setLockPhysicalControls: ${isLocked ? "LOCKED" : "UNLOCKED"}`);
+    await this.device.setState("childlock", isLocked);
   }
 
   // Fan speed mapping: Sleep(0)=25%, 1=50%, 2=75%, 3=100%
@@ -826,8 +826,9 @@ export class BlueAirAccessory {
     else if (hkSpeed <= 75) deviceSpeed = 2;
     else deviceSpeed = 3;
 
-    this.platform.log.debug(
-      `[${this.device.name}] Setting fan speed (discrete) to ${hkSpeed}% -> Device Speed ${deviceSpeed}`,
+    const speedLabel = this.getFanSpeedLabel(deviceSpeed);
+    this.platform.log.info(
+      `[${this.device.name}] HomeKit → setRotationSpeed: ${hkSpeed}% → ${speedLabel} (device speed ${deviceSpeed}) - disabling auto mode`,
     );
     // Manual fan change disables auto humidity control and automode
     this.humidityAutoControlEnabled = false;
@@ -886,9 +887,7 @@ export class BlueAirAccessory {
   }
 
   async setGermShield(value: CharacteristicValue) {
-    this.platform.log.debug(
-      `[${this.device.name}] Setting germ shield to ${value}`,
-    );
+    this.platform.log.info(`[${this.device.name}] HomeKit → setGermShield: ${value ? "ON" : "OFF"}`);
     await this.device.setState("germshield", value as boolean);
   }
 
@@ -947,8 +946,8 @@ export class BlueAirAccessory {
 
   async setTargetRelativeHumidity(value: CharacteristicValue) {
     const desired = Math.max(HUMIDITY_MIN, Math.min(HUMIDITY_MAX, value as number));
-    this.platform.log.debug(
-      `[${this.device.name}] Setting target humidity to ${desired}%`,
+    this.platform.log.info(
+      `[${this.device.name}] HomeKit → setTargetRelativeHumidity: ${desired}% - enabling auto mode`,
     );
     const attr = this.findHumidityTargetAttribute();
     if (attr) {
@@ -1032,22 +1031,43 @@ export class BlueAirAccessory {
   }
 
   getTargetHumidifierState(): CharacteristicValue {
-    return this.device.state.automode
-      ? this.platform.Characteristic.TargetHumidifierDehumidifierState
-          .HUMIDIFIER_OR_DEHUMIDIFIER
-      : this.platform.Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER;
+    // Sleep mode: fanspeed=0 and not in auto mode
+    if (this.device.state.fanspeed === 0 && !this.device.state.automode) {
+      return this.platform.Characteristic.TargetHumidifierDehumidifierState.DEHUMIDIFIER; // Sleep
+    }
+    // Auto mode
+    if (this.device.state.automode) {
+      return this.platform.Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER_OR_DEHUMIDIFIER;
+    }
+    // Manual mode
+    return this.platform.Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER;
   }
 
   async setTargetHumidifierState(value: CharacteristicValue) {
-    this.platform.log.debug(
-      `[${this.device.name}] Setting target humidifier state to ${value}`,
-    );
-    await this.device.setState(
-      "automode",
-      value ===
-        this.platform.Characteristic.TargetHumidifierDehumidifierState
-          .HUMIDIFIER_OR_DEHUMIDIFIER,
-    );
+    const C = this.platform.Characteristic.TargetHumidifierDehumidifierState;
+    
+    if (value === C.HUMIDIFIER_OR_DEHUMIDIFIER) {
+      // Auto mode
+      this.platform.log.info(`[${this.device.name}] HomeKit → setTargetHumidifierState: AUTO`);
+      this.humidityAutoControlEnabled = true;
+      await this.device.setState("automode", true);
+    } else if (value === C.DEHUMIDIFIER) {
+      // Sleep mode (repurposed DEHUMIDIFIER)
+      this.platform.log.info(`[${this.device.name}] HomeKit → setTargetHumidifierState: SLEEP`);
+      this.humidityAutoControlEnabled = false;
+      this.lastManualOverride = Date.now();
+      await this.device.setState("automode", false);
+      await this.device.setState("fanspeed", 0);
+    } else {
+      // Manual/Humidify mode
+      this.platform.log.info(`[${this.device.name}] HomeKit → setTargetHumidifierState: MANUAL`);
+      this.humidityAutoControlEnabled = false;
+      await this.device.setState("automode", false);
+      // If currently in sleep, bump to low speed
+      if (this.device.state.fanspeed === 0) {
+        await this.device.setState("fanspeed", 1);
+      }
+    }
   }
 
   getWaterLevel(): CharacteristicValue {
