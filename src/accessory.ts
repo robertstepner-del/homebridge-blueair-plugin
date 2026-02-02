@@ -340,8 +340,8 @@ export class BlueAirAccessory {
     this.service
       .getCharacteristic(this.platform.Characteristic.RotationSpeed)
       .setProps({ minValue: 0, maxValue: 11, minStep: 1 })
-      .onGet(this.getRotationSpeed.bind(this))
-      .onSet(this.setRotationSpeed.bind(this));
+      .onGet(this.getOriginalRotationSpeed.bind(this))
+      .onSet(this.setOriginalRotationSpeed.bind(this));
 
     this.filterMaintenanceService =
       this.accessory.getService(this.platform.Service.FilterMaintenance) ||
@@ -424,7 +424,7 @@ export class BlueAirAccessory {
 
     this.fanService
       .getCharacteristic(this.platform.Characteristic.RotationSpeed)
-      .setProps({ minValue: 0, maxValue: 100, minStep: 25 })
+      .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
       .onGet(this.getRotationSpeed.bind(this))
       .onSet(this.setRotationSpeed.bind(this));
 
@@ -464,8 +464,8 @@ export class BlueAirAccessory {
     this.targetHumidityLightService
       .getCharacteristic(this.platform.Characteristic.Brightness)
       .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
-      .onGet(this.getTargetRelativeHumidity.bind(this))
-      .onSet(this.setTargetRelativeHumidity.bind(this));
+      .onGet(this.getTargetRelativeHumidityForLightbulb.bind(this))
+      .onSet(this.setTargetRelativeHumidityFromLightbulb.bind(this));
 
     this.service.addLinkedService(this.targetHumidityLightService);
 
@@ -847,7 +847,7 @@ export class BlueAirAccessory {
           );
           this.service.updateCharacteristic(
             this.platform.Characteristic.RotationSpeed,
-            this.getRotationSpeed(),
+            this.getOriginalRotationSpeed(),
           );
         } else {
           this.service.updateCharacteristic(
@@ -864,7 +864,7 @@ export class BlueAirAccessory {
           );
           this.service.updateCharacteristic(
             this.platform.Characteristic.RotationSpeed,
-            this.getRotationSpeed(),
+            this.getOriginalRotationSpeed(),
           );
           this.fanService?.updateCharacteristic(
             this.platform.Characteristic.RotationSpeed,
@@ -1029,17 +1029,17 @@ export class BlueAirAccessory {
     await this.device.setState("fanspeed", speed);
   }
 
-  // Simplified getter/setter for the new Fan service (0-100% scale mapped to 4 presets)
+  // 0-100% scale mapped to 4 presets: Sleep(25), Low(50), Medium(75), High(100)
   getRotationSpeed(): CharacteristicValue {
     const rawSpeed = this.device.state.fanspeed || 0;
     
     if (this.device.state.standby !== false) return 0;
     
     // Convert device speed to HomeKit scale (0, 25, 50, 75, 100)
-    if (rawSpeed <= 1) return 25;  // Sleep/Quiet
-    if (rawSpeed <= 3) return 50;  // Low
-    if (rawSpeed <= 6) return 75;  // Medium
-    return 100;                    // High/Boost
+    if (rawSpeed <= 1) return 25;  // Sleep/Quiet (Speed 1)
+    if (rawSpeed <= 3) return 50;  // Low (Speed 3)
+    if (rawSpeed <= 6) return 75;  // Medium (Speed 6)
+    return 100;                    // High (Speed 11)
   }
 
   async setRotationSpeed(value: CharacteristicValue) {
@@ -1050,11 +1050,11 @@ export class BlueAirAccessory {
     if (hkSpeed <= 0) deviceSpeed = 0;
     else if (hkSpeed <= 25) deviceSpeed = 1;  // Sleep/Quiet (Speed 1)
     else if (hkSpeed <= 50) deviceSpeed = 3;  // Low (Speed 3)
-    else if (hkSpeed <= 75) deviceSpeed = 5;  // Medium (Speed 5)
-    else deviceSpeed = 8;                     // High (Speed 8)
+    else if (hkSpeed <= 75) deviceSpeed = 6;  // Medium (Speed 6)
+    else deviceSpeed = 11;                    // High (Speed 11)
 
     this.platform.log.debug(
-      `[${this.device.name}] Setting fan speed (simplified) to ${hkSpeed}% -> Device Speed ${deviceSpeed}`,
+      `[${this.device.name}] Setting fan speed (preset) to ${hkSpeed}% -> Device Speed ${deviceSpeed}`,
     );
     await this.device.setState("fanspeed", deviceSpeed);
   }
@@ -1151,6 +1151,41 @@ export class BlueAirAccessory {
     this.platform.log.info(
       `[${this.device.name}] Target humidity set to ${targetHumidity}% (storage only - API control pending)`,
     );
+    // Persist this config if possible or implement API call
+  }
+
+  // Map physical range (30-80%) to HomeKit slider (0-100%)
+  // HomeKit 0%   -> Device 30%
+  // HomeKit 100% -> Device 80%
+  getTargetRelativeHumidityForLightbulb(): CharacteristicValue {
+    const realHumidity = this.configDev.targetHumidity || 45; // Default 45% if undefined
+    
+    // Reverse mapping: (Real - 30) / (80 - 30) * 100
+    // Example: Real 30 -> (0/50)*100 = 0%
+    // Example: Real 55 -> (25/50)*100 = 50%
+    // Example: Real 80 -> (50/50)*100 = 100%
+    
+    let brightness = Math.round(((realHumidity - 30) / 50) * 100);
+    brightness = Math.max(0, Math.min(100, brightness));
+    
+    return brightness;
+  }
+
+  async setTargetRelativeHumidityFromLightbulb(value: CharacteristicValue) {
+    const brightness = value as number;
+    
+    // Forward mapping: (Brightness / 100 * 50) + 30
+    // Example: 0%   -> 0 + 30 = 30%
+    // Example: 50%  -> 25 + 30 = 55%
+    // Example: 100% -> 50 + 30 = 80%
+    
+    const targetHumidity = Math.round((brightness / 100) * 50 + 30);
+    
+    this.platform.log.debug(
+      `[${this.device.name}] Target Humidity Slider: ${brightness}% -> Setting Device to ${targetHumidity}%`,
+    );
+    
+    await this.setTargetRelativeHumidity(targetHumidity);
   }
 
   getCurrentHumidifierState(): CharacteristicValue {
