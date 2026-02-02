@@ -262,6 +262,7 @@ export class BlueAirAccessory {
   private humidityAutoControlEnabled = false;
   private lastManualOverride = 0;
   private lastAutoAdjust = 0;
+  private loggedNoWritableTargetHumidity = false;
 
   constructor(
     protected readonly platform: BlueAirPlatform,
@@ -339,11 +340,12 @@ export class BlueAirAccessory {
       .onGet(this.getLockPhysicalControls.bind(this))
       .onSet(this.setLockPhysicalControls.bind(this));
 
+    // Use 0–100% scale for HomeKit; map internally to device 0–11
     this.service
       .getCharacteristic(this.platform.Characteristic.RotationSpeed)
-      .setProps({ minValue: 0, maxValue: 11, minStep: 1 })
-      .onGet(this.getOriginalRotationSpeed.bind(this))
-      .onSet(this.setOriginalRotationSpeed.bind(this));
+      .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
+      .onGet(this.getRotationSpeed.bind(this))
+      .onSet(this.setRotationSpeed.bind(this));
 
     this.filterMaintenanceService =
       this.accessory.getService(this.platform.Service.FilterMaintenance) ||
@@ -403,11 +405,12 @@ export class BlueAirAccessory {
       .onGet(this.getTargetHumidifierState.bind(this))
       .onSet(this.setTargetHumidifierState.bind(this));
 
+    // Use 0–100% scale for HomeKit; map internally to device 0–11
     this.service
       .getCharacteristic(this.platform.Characteristic.RotationSpeed)
-      .setProps({ minValue: 0, maxValue: 11, minStep: 1 })
-      .onGet(this.getOriginalRotationSpeed.bind(this))
-      .onSet(this.setOriginalRotationSpeed.bind(this));
+      .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
+      .onGet(this.getRotationSpeed.bind(this))
+      .onSet(this.setRotationSpeed.bind(this));
 
     // setup separate Fan service for visibility in Home app
     this.fanService =
@@ -813,7 +816,7 @@ export class BlueAirAccessory {
           );
           this.service.updateCharacteristic(
             this.platform.Characteristic.RotationSpeed,
-            this.getOriginalRotationSpeed(),
+            this.getRotationSpeed(),
           );
         } else {
           this.service.updateCharacteristic(
@@ -830,7 +833,7 @@ export class BlueAirAccessory {
           );
           this.service.updateCharacteristic(
             this.platform.Characteristic.RotationSpeed,
-            this.getOriginalRotationSpeed(),
+            this.getRotationSpeed(),
           );
           this.service.updateCharacteristic(
             this.platform.Characteristic.TargetRelativeHumidity,
@@ -1149,9 +1152,12 @@ export class BlueAirAccessory {
       return;
     }
     // Fallback: store locally if device does not expose a writable target
-    this.platform.log.info(
-      `[${this.device.name}] Device did not expose a writable target humidity attribute; storing locally at ${desired}%`,
-    );
+    if (!this.loggedNoWritableTargetHumidity) {
+      this.platform.log.info(
+        `[${this.device.name}] Device did not expose a writable target humidity attribute; storing locally.`,
+      );
+      this.loggedNoWritableTargetHumidity = true;
+    }
     this.configDev.targetHumidity = desired;
     await this.device.setState("automode", true);
     this.humidityAutoControlEnabled = true;
