@@ -51,7 +51,6 @@ const FAN_SPEED_LABELS: Record<number, string> = {
 // Humidity target range
 const HUMIDITY_MIN = 30;
 const HUMIDITY_MAX = 80;
-const HUMIDITY_RANGE = HUMIDITY_MAX - HUMIDITY_MIN; // 50
 
 type BlueAirSensorDataWithAqi = BlueAirDeviceSensorData & { aqi?: number };
 
@@ -260,19 +259,9 @@ export class BlueAirDevice extends EventEmitter {
 
 type DeviceType = "humidifier" | "air-purifier";
 
-/** Configuration for optional service setup */
-type OptionalServiceConfig = {
-  serviceType: typeof Service;
-  subtype: string;
-  displayName: string;
-  configKey: keyof DeviceConfig;
-  configure: (service: Service) => void;
-};
-
 export class BlueAirAccessory {
   private service!: Service;
   private fanService?: Service;
-  private targetHumidityLightService?: Service;
   private filterMaintenanceService?: Service;
   private readonly optionalServices = new Map<string, Service>();
   private deviceType: DeviceType;
@@ -357,7 +346,7 @@ export class BlueAirAccessory {
       .onGet(this.getLockPhysicalControls.bind(this))
       .onSet(this.setLockPhysicalControls.bind(this));
 
-    // Use 0–100% scale for HomeKit; map internally to device 0–11
+    // Use 0–100% scale for HomeKit; map internally to device speed (Sleep/1/2/3)
     this.service
       .getCharacteristic(this.platform.Characteristic.RotationSpeed)
       .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
@@ -398,7 +387,7 @@ export class BlueAirAccessory {
 
     this.service
       .getCharacteristic(this.platform.Characteristic.TargetRelativeHumidity)
-      .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
+      .setProps({ minValue: HUMIDITY_MIN, maxValue: HUMIDITY_MAX, minStep: 1 })
       .onGet(this.getTargetRelativeHumidity.bind(this))
       .onSet(this.setTargetRelativeHumidity.bind(this));
 
@@ -422,7 +411,7 @@ export class BlueAirAccessory {
       .onGet(this.getTargetHumidifierState.bind(this))
       .onSet(this.setTargetHumidifierState.bind(this));
 
-    // Use 0–100% scale for HomeKit; map internally to device 0–11
+    // Use 0–100% scale for HomeKit; map internally to device speed (Sleep/1/2/3)
     this.service
       .getCharacteristic(this.platform.Characteristic.RotationSpeed)
       .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
@@ -453,48 +442,6 @@ export class BlueAirAccessory {
 
       // Link the service for better UI grouping
       this.service.addLinkedService(this.fanService);
-    }
-
-    // Setup separate Lightbulb service for Target Humidity control (Workaround for Home app, configurable)
-    if (this.configDev.showTargetHumidityTile !== false) {
-      this.targetHumidityLightService =
-        this.accessory.getServiceById(
-          this.platform.Service.Lightbulb,
-          "TargetHumidity",
-        ) ||
-        this.accessory.addService(
-          this.platform.Service.Lightbulb,
-          "Target Humidity",
-          "TargetHumidity",
-        );
-
-      this.targetHumidityLightService.setCharacteristic(
-        this.platform.Characteristic.Name,
-        this.configDev.name + " Target Humidity",
-      );
-
-      this.targetHumidityLightService
-        .getCharacteristic(this.platform.Characteristic.On)
-        .onGet(() => {
-          return (
-            this.getActive() === this.platform.Characteristic.Active.ACTIVE
-          );
-        })
-        .onSet(async (value) => {
-          await this.setActive(
-            value
-              ? this.platform.Characteristic.Active.ACTIVE
-              : this.platform.Characteristic.Active.INACTIVE,
-          );
-        });
-
-      this.targetHumidityLightService
-        .getCharacteristic(this.platform.Characteristic.Brightness)
-        .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
-        .onGet(this.getTargetRelativeHumidityForLightbulb.bind(this))
-        .onSet(this.setTargetRelativeHumidityFromLightbulb.bind(this));
-
-      this.service.addLinkedService(this.targetHumidityLightService);
     }
 
     this.service
@@ -715,11 +662,9 @@ export class BlueAirAccessory {
       this.service.updateCharacteristic(C.TargetHumidifierDehumidifierState, this.getTargetHumidifierState());
       this.service.updateCharacteristic(C.CurrentRelativeHumidity, this.getCurrentRelativeHumidity());
       this.service.updateCharacteristic(C.TargetRelativeHumidity, this.getTargetRelativeHumidity());
-      this.targetHumidityLightService?.updateCharacteristic(C.Brightness, this.getTargetRelativeHumidityForLightbulb());
       this.fanService?.updateCharacteristic(C.RotationSpeed, this.getRotationSpeed());
     }
     this.service.updateCharacteristic(C.RotationSpeed, this.getRotationSpeed());
-    this.targetHumidityLightService?.updateCharacteristic(C.On, this.getActive() === C.Active.ACTIVE);
     this.updateOptionalCharacteristic("Led", C.On, this.getLedOn());
     this.updateOptionalCharacteristic("GermShield", C.On, this.getGermShield());
     this.updateOptionalCharacteristic("NightMode", C.On, this.getNightMode());
@@ -1025,27 +970,6 @@ export class BlueAirAccessory {
     this.configDev.targetHumidity = desired;
     await this.device.setState("automode", true);
     this.humidityAutoControlEnabled = true;
-  }
-
-  /** Maps device target humidity (30–80%) to HomeKit brightness (0–100%). */
-  getTargetRelativeHumidityForLightbulb(): CharacteristicValue {
-    const realHumidity = (this.getTargetRelativeHumidity() as number) || 45;
-    const brightness = Math.round(
-      ((realHumidity - HUMIDITY_MIN) / HUMIDITY_RANGE) * 100,
-    );
-    return Math.max(0, Math.min(100, brightness));
-  }
-
-  /** Maps HomeKit brightness (0–100%) to device target humidity (30–80%). */
-  async setTargetRelativeHumidityFromLightbulb(value: CharacteristicValue) {
-    const brightness = value as number;
-    const targetHumidity = Math.round(
-      (brightness / 100) * HUMIDITY_RANGE + HUMIDITY_MIN,
-    );
-    this.platform.log.debug(
-      `[${this.device.name}] Target Humidity Slider: ${brightness}% -> ${targetHumidity}%`,
-    );
-    await this.setTargetRelativeHumidity(targetHumidity);
   }
 
   private maybeAutoAdjustFanSpeed() {

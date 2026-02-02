@@ -46,7 +46,6 @@ export type DeviceConfig = {
   targetHumidityAttribute?: string;
   // UI controls
   showFanTile?: boolean; // Show additional Fan tile (Humidifiers)
-  showTargetHumidityTile?: boolean; // Show Target Humidity Lightbulb workaround
   defaultTargetHumidity?: number; // Preferred target if device does not expose writable target
   led: boolean;
   airQualitySensor: boolean;

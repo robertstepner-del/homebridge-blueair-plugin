@@ -82,12 +82,6 @@
               "type": "boolean",
               "default": true
             },
-            "showTargetHumidityTile": {
-              "title": "Show Target Humidity Tile (workaround)",
-              "description": "Adds a Lightbulb tile whose brightness maps to target humidity (30–80%). Helps control target humidity in Home app.",
-              "type": "boolean",
-              "default": true
-            },
             "defaultTargetHumidity": {
               "title": "Default Target Humidity (%)",
               "description": "Used when the device does not expose a writable target humidity attribute. Range 30–80%.",
@@ -167,7 +161,6 @@
             "devices[].model",
             "devices[].serialNumber",
             "devices[].showFanTile",
-            "devices[].showTargetHumidityTile",
             "devices[].defaultTargetHumidity",
             "devices[].targetHumidityAttribute",
             "devices[].filterChangeLevel",
