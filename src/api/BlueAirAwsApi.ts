@@ -201,6 +201,11 @@ export default class BlueAirAwsApi {
           const key = BlueAirDeviceSensorDataMap[sensor.n];
           if (key) {
             acc[key] = sensor.v;
+          } else {
+            // Log unmapped sensor data so user can see all available sensors
+            this.logger.debug(
+              `[${device.configuration.di.name}] Unmapped sensor: ${sensor.n} = ${sensor.v}`,
+            );
           }
           return acc;
         }, {} as BlueAirDeviceSensorData);
@@ -218,6 +223,10 @@ export default class BlueAirAwsApi {
           return acc;
         }, {} as BlueAirDeviceState);
 
+        // Log all available attributes for debugging
+        this.logger.debug(
+          `[${device.configuration.di.name}] Available state keys: ${Object.keys(state).join(", ")}`,
+        );
         this.logger.debug(
           `[${device.configuration.di.name}] Sensor data: ${JSON.stringify(sensorData)}`,
         );

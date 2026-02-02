@@ -403,12 +403,12 @@ export class BlueAirAccessory {
         this.platform.Characteristic.TargetHumidifierDehumidifierState,
       )
       .setProps({
-        // Use DEHUMIDIFIER value as "Sleep" mode (device doesn't dehumidify)
+        // Use DEHUMIDIFIER value as "Night Mode" (device doesn't dehumidify)
         validValues: [
           this.platform.Characteristic.TargetHumidifierDehumidifierState
             .HUMIDIFIER_OR_DEHUMIDIFIER, // Auto
           this.platform.Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER, // Manual/Humidify
-          this.platform.Characteristic.TargetHumidifierDehumidifierState.DEHUMIDIFIER, // Sleep
+          this.platform.Characteristic.TargetHumidifierDehumidifierState.DEHUMIDIFIER, // Night Mode
         ],
       })
       .onGet(this.getTargetHumidifierState.bind(this))
@@ -539,12 +539,13 @@ export class BlueAirAccessory {
       },
     );
 
-    // Night mode switch - default to true if not explicitly set
+    // Night mode switch removed - humidifiers use Night Mode in dropdown
+    // Pass false to remove any existing Night Mode service from cache
     this.setupOptionalService(
       S.Switch,
       "NightMode",
       "Night Mode",
-      this.configDev.nightMode !== false,
+      false, // Always remove - Night Mode is in the dropdown for humidifiers
       (svc) => {
         svc.setCharacteristic(C.ConfiguredName, `${this.device.name} Night Mode`);
         svc.getCharacteristic(C.On).onGet(this.getNightMode.bind(this)).onSet(this.setNightMode.bind(this));
@@ -654,7 +655,10 @@ export class BlueAirAccessory {
           this.updateOptionalCharacteristic("GermShield", C.On, this.getGermShield());
           break;
         case "nightmode":
-          this.updateOptionalCharacteristic("NightMode", C.On, this.getNightMode());
+          // Update the dropdown to reflect night mode state for humidifiers
+          if (this.deviceType === "humidifier") {
+            this.service.updateCharacteristic(C.TargetHumidifierDehumidifierState, this.getTargetHumidifierState());
+          }
           break;
       }
     }
@@ -1031,9 +1035,9 @@ export class BlueAirAccessory {
   }
 
   getTargetHumidifierState(): CharacteristicValue {
-    // Sleep mode: fanspeed=0 and not in auto mode
-    if (this.device.state.fanspeed === 0 && !this.device.state.automode) {
-      return this.platform.Characteristic.TargetHumidifierDehumidifierState.DEHUMIDIFIER; // Sleep
+    // Night mode
+    if (this.device.state.nightmode === true) {
+      return this.platform.Characteristic.TargetHumidifierDehumidifierState.DEHUMIDIFIER;
     }
     // Auto mode
     if (this.device.state.automode) {
@@ -1050,23 +1054,20 @@ export class BlueAirAccessory {
       // Auto mode
       this.platform.log.info(`[${this.device.name}] HomeKit → setTargetHumidifierState: AUTO`);
       this.humidityAutoControlEnabled = true;
+      await this.device.setState("nightmode", false);
       await this.device.setState("automode", true);
     } else if (value === C.DEHUMIDIFIER) {
-      // Sleep mode (repurposed DEHUMIDIFIER)
-      this.platform.log.info(`[${this.device.name}] HomeKit → setTargetHumidifierState: SLEEP`);
+      // Night mode (repurposed DEHUMIDIFIER)
+      this.platform.log.info(`[${this.device.name}] HomeKit → setTargetHumidifierState: NIGHT MODE`);
       this.humidityAutoControlEnabled = false;
-      this.lastManualOverride = Date.now();
       await this.device.setState("automode", false);
-      await this.device.setState("fanspeed", 0);
+      await this.device.setState("nightmode", true);
     } else {
       // Manual/Humidify mode
       this.platform.log.info(`[${this.device.name}] HomeKit → setTargetHumidifierState: MANUAL`);
       this.humidityAutoControlEnabled = false;
+      await this.device.setState("nightmode", false);
       await this.device.setState("automode", false);
-      // If currently in sleep, bump to low speed
-      if (this.device.state.fanspeed === 0) {
-        await this.device.setState("fanspeed", 1);
-      }
     }
   }
 
