@@ -825,30 +825,49 @@ export class BlueAirAccessory {
     await this.device.setState("brightness", value as number);
   }
 
-  // Night light brightness - device uses inverted scale (lower value = brighter)
-  // Device: 0 = off, 1 = brightest, 100 = dimmest
-  // HomeKit: 0 = off, 100 = brightest
+  // Night light has 3 levels + off:
+  // Device: 0 = off, 98 = bright, 99 = normal, 100 = warm
+  // HomeKit: 0 = off, 1-33 = warm, 34-66 = normal, 67-100 = bright
+  private readonly NL_LEVELS = { OFF: 0, BRIGHT: 98, NORMAL: 99, WARM: 100 };
+
   private nlDeviceToHomeKit(deviceValue: number): number {
-    if (deviceValue === 0) return 0;
-    return 100 - deviceValue + 1; // 1 -> 100, 100 -> 1
+    switch (deviceValue) {
+      case 0: return 0;
+      case 98: return 100; // bright
+      case 99: return 66;  // normal
+      case 100: return 33; // warm
+      default: return 0;
+    }
   }
 
   private nlHomeKitToDevice(hkValue: number): number {
-    if (hkValue === 0) return 0;
-    return 100 - hkValue + 1; // 100 -> 1, 1 -> 100
+    if (hkValue === 0) return this.NL_LEVELS.OFF;
+    if (hkValue <= 33) return this.NL_LEVELS.WARM;
+    if (hkValue <= 66) return this.NL_LEVELS.NORMAL;
+    return this.NL_LEVELS.BRIGHT;
+  }
+
+  private nlDeviceToName(deviceValue: number): string {
+    switch (deviceValue) {
+      case 98: return "Bright";
+      case 99: return "Normal";
+      case 100: return "Warm";
+      default: return "Off";
+    }
   }
 
   getNightLightOn(): CharacteristicValue {
     return (
       this.device.state.nlbrightness !== undefined &&
-      this.device.state.nlbrightness > 0
+      this.device.state.nlbrightness > 0 &&
+      this.device.state.nlbrightness !== 0
     );
   }
 
   async setNightLightOn(value: CharacteristicValue) {
     this.platform.log.info(`[${this.device.name}] HomeKit → setNightLightOn: ${value ? "ON" : "OFF"}`);
-    // Turn on to previous brightness or 50% (device value ~50), turn off to 0
-    const deviceBrightness = value ? (this.device.state.nlbrightness || 50) : 0;
+    // Turn on to Normal (99), turn off to 0
+    const deviceBrightness = value ? this.NL_LEVELS.NORMAL : this.NL_LEVELS.OFF;
     await this.device.setState("nlbrightness", deviceBrightness);
   }
 
@@ -872,7 +891,7 @@ export class BlueAirAccessory {
       if (valueToSet === undefined) return;
 
       this.platform.log.info(
-        `[${this.device.name}] HomeKit → setNightLightBrightness: ${hkValue}% (device: ${valueToSet})`,
+        `[${this.device.name}] HomeKit → setNightLightBrightness: ${this.nlDeviceToName(valueToSet)} (${valueToSet})`,
       );
       await this.device.setState("nlbrightness", valueToSet);
       this.pendingNlBrightness = undefined;
