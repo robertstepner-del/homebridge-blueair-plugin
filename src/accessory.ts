@@ -380,8 +380,9 @@ export class BlueAirAccessory {
       .getCharacteristic(this.platform.Characteristic.CurrentRelativeHumidity)
       .onGet(this.getCurrentRelativeHumidity.bind(this));
 
+    // RelativeHumidityHumidifierThreshold is the correct characteristic for target humidity in HumidifierDehumidifier service
     this.service
-      .getCharacteristic(this.platform.Characteristic.TargetRelativeHumidity)
+      .getCharacteristic(this.platform.Characteristic.RelativeHumidityHumidifierThreshold)
       .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
       .onGet(this.getTargetRelativeHumidity.bind(this))
       .onSet(this.setTargetRelativeHumidity.bind(this));
@@ -509,6 +510,15 @@ export class BlueAirAccessory {
     const C = this.platform.Characteristic;
     const S = this.platform.Service;
 
+    // Remove legacy "Led" service from cache (renamed to DisplayBrightness)
+    this.setupOptionalService(
+      S.Lightbulb,
+      "Led",
+      "Led",
+      false, // Always remove - replaced by DisplayBrightness
+      () => {},
+    );
+
     // Display brightness - controls the main display LED (uses 'brightness' API variable)
     this.setupOptionalService(
       S.Lightbulb,
@@ -575,12 +585,12 @@ export class BlueAirAccessory {
       );
     }
 
-    // Air quality sensor - default to true if not explicitly set
+    // Air quality sensor - only for air purifiers (humidifiers don't have these sensors)
     this.setupOptionalService(
       S.AirQualitySensor,
       "AirQuality",
       "Air Quality",
-      this.configDev.airQualitySensor !== false,
+      this.deviceType === "air-purifier" && this.configDev.airQualitySensor !== false,
       (svc) => {
         svc.getCharacteristic(C.AirQuality).onGet(this.getAirQuality.bind(this));
         svc.getCharacteristic(C.PM2_5Density).onGet(this.getPM2_5Density.bind(this));
@@ -684,7 +694,7 @@ export class BlueAirAccessory {
         case "autorh":
           // Update target humidity for humidifiers
           if (this.deviceType === "humidifier") {
-            this.service.updateCharacteristic(C.TargetRelativeHumidity, this.getTargetRelativeHumidity());
+            this.service.updateCharacteristic(C.RelativeHumidityHumidifierThreshold, this.getTargetRelativeHumidity());
           }
           break;
       }
@@ -702,7 +712,7 @@ export class BlueAirAccessory {
       this.service.updateCharacteristic(C.CurrentHumidifierDehumidifierState, this.getCurrentHumidifierState());
       this.service.updateCharacteristic(C.TargetHumidifierDehumidifierState, this.getTargetHumidifierState());
       this.service.updateCharacteristic(C.CurrentRelativeHumidity, this.getCurrentRelativeHumidity());
-      this.service.updateCharacteristic(C.TargetRelativeHumidity, this.getTargetRelativeHumidity());
+      this.service.updateCharacteristic(C.RelativeHumidityHumidifierThreshold, this.getTargetRelativeHumidity());
       this.fanService?.updateCharacteristic(C.RotationSpeed, this.getRotationSpeed());
     }
     this.service.updateCharacteristic(C.RotationSpeed, this.getRotationSpeed());
