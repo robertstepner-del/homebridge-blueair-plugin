@@ -890,17 +890,27 @@ export class BlueAirAccessory {
     await this.device.setState("childlock", isLocked);
   }
 
-  // Fan speed: device uses 0-100% directly
+  // Fan speed levels: 0 (off/night), 11 (low), 37 (medium), 64 (high)
+  private readonly FAN_SPEED_LEVELS = [0, 11, 37, 64];
+
+  // Map HomeKit percentage to nearest device speed level
+  private mapToDeviceSpeed(hkSpeed: number): number {
+    if (hkSpeed <= 10) return 0; // Night mode / off
+    if (hkSpeed <= 36) return 11; // Low
+    if (hkSpeed <= 63) return 37; // Medium
+    return 64; // High
+  }
+
+  // Map device speed to HomeKit percentage (return actual device value for display)
   getRotationSpeed(): CharacteristicValue {
     if (this.device.state.standby !== false) return 0;
-    // Device already uses 0-100%
     return this.device.state.fanspeed ?? 0;
   }
 
   async setRotationSpeed(value: CharacteristicValue) {
     const hkSpeed = Math.max(0, Math.min(100, value as number));
-    // Device uses 0-100% directly
-    const deviceSpeed = Math.round(hkSpeed);
+    // Map to valid device speed levels
+    const deviceSpeed = this.mapToDeviceSpeed(hkSpeed);
 
     // Debounce: HomeKit sends rapid updates when dragging slider
     // Store both values and only send after 500ms of no changes
@@ -1100,19 +1110,23 @@ export class BlueAirAccessory {
     const diff = target - current; // positive -> need more humidity
     const speed = (this.device.state.fanspeed ?? 0) as number;
 
-    let newSpeed = speed;
+    // Find current speed index in valid levels
+    const speedIndex = this.FAN_SPEED_LEVELS.findIndex(
+      (lvl, i, arr) => speed <= lvl || i === arr.length - 1
+    );
+
+    let newSpeedIndex = speedIndex;
     // Use hysteresis thresholds to avoid oscillation
-    // Adjust by 5-10% at a time based on humidity difference (device uses 0-100%)
+    // Step up/down one level at a time based on humidity difference
     if (diff > 2) {
-      // Need more humidity - increase fan speed
-      const step = diff > 5 ? 10 : 5;
-      newSpeed = Math.min(100, speed + step);
+      // Need more humidity - increase fan speed one level
+      newSpeedIndex = Math.min(this.FAN_SPEED_LEVELS.length - 1, speedIndex + 1);
     } else if (diff < -4) {
-      // Too humid - decrease fan speed
-      const step = diff < -8 ? 10 : 5;
-      newSpeed = Math.max(0, speed - step);
+      // Too humid - decrease fan speed one level
+      newSpeedIndex = Math.max(0, speedIndex - 1);
     }
 
+    const newSpeed = this.FAN_SPEED_LEVELS[newSpeedIndex];
     if (newSpeed !== speed) {
       this.platform.log.debug(
         `[${this.device.name}] Auto-adjust fan: humidity ${current}% target ${target}% -> speed ${speed} -> ${newSpeed}`,
