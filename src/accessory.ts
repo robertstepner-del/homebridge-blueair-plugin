@@ -579,12 +579,13 @@ export class BlueAirAccessory {
       },
     );
 
-    // Germ shield switch - default to true if not explicitly set
+    // Germ shield switch - only for air purifiers
+    // Pass false for humidifiers to remove any existing cached service
     this.setupOptionalService(
       S.Switch,
       "GermShield",
       "Germ Shield",
-      this.configDev.germShield !== false,
+      this.deviceType === "air-purifier" && this.configDev.germShield !== false,
       (svc) => {
         svc.setCharacteristic(C.ConfiguredName, `${this.device.name} Germ Shield`);
         svc.getCharacteristic(C.On).onGet(this.getGermShield.bind(this)).onSet(this.setGermShield.bind(this));
@@ -822,6 +823,7 @@ export class BlueAirAccessory {
   }
 
   async setRotationSpeed(value: CharacteristicValue) {
+    this.platform.log.debug(`[${this.device.name}] setRotationSpeed called with value: ${value}`);
     const hkSpeed = Math.max(0, Math.min(100, value as number));
     let deviceSpeed = 0;
     // Map 0–100% to Sleep/1/2/3
@@ -949,6 +951,7 @@ export class BlueAirAccessory {
   }
 
   async setTargetRelativeHumidity(value: CharacteristicValue) {
+    this.platform.log.debug(`[${this.device.name}] setTargetRelativeHumidity called with value: ${value}`);
     const desired = Math.max(HUMIDITY_MIN, Math.min(HUMIDITY_MAX, value as number));
     this.platform.log.info(
       `[${this.device.name}] HomeKit → setTargetRelativeHumidity: ${desired}% - enabling auto mode`,
