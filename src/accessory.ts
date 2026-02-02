@@ -408,8 +408,8 @@ export class BlueAirAccessory {
           this.platform.Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER,
         ],
       })
-      .onGet(() => this.platform.Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER)
-      .onSet(() => { /* no-op - locked to HUMIDIFIER */ });
+      .onGet(this.getTargetHumidifierState.bind(this))
+      .onSet(this.setTargetHumidifierState.bind(this));
 
     // Use 0–100% scale for HomeKit; map internally to device speed (Sleep/1/2/3)
     this.service
@@ -1102,30 +1102,14 @@ export class BlueAirAccessory {
   }
 
   getTargetHumidifierState(): CharacteristicValue {
-    // Night mode -> DEHUMIDIFIER (repurposed)
-    if (this.device.state.nightmode === true) {
-      return this.platform.Characteristic.TargetHumidifierDehumidifierState.DEHUMIDIFIER;
-    }
-    // Both auto mode and manual mode show as HUMIDIFIER (to keep humidity slider visible)
+    // Always return HUMIDIFIER - dropdown is locked to single value
+    // Night mode is controlled via fan speed slider (low speed = night mode)
     return this.platform.Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER;
   }
 
-  async setTargetHumidifierState(value: CharacteristicValue) {
-    const C = this.platform.Characteristic.TargetHumidifierDehumidifierState;
-    
-    if (value === C.DEHUMIDIFIER) {
-      // Night mode (repurposed DEHUMIDIFIER)
-      this.platform.log.info(`[${this.device.name}] HomeKit → setMode: NIGHT MODE`);
-      this.humidityAutoControlEnabled = false;
-      await this.device.setState("automode", false);
-      await this.device.setState("nightmode", true);
-    } else {
-      // HUMIDIFIER mode - enable auto mode with humidity target
-      this.platform.log.info(`[${this.device.name}] HomeKit → setMode: AUTO (humidity control)`);
-      this.humidityAutoControlEnabled = true;
-      await this.device.setState("nightmode", false);
-      await this.device.setState("automode", true);
-    }
+  async setTargetHumidifierState(_value: CharacteristicValue) {
+    // No-op - mode is locked to HUMIDIFIER
+    // Auto/manual/night mode is controlled automatically via humidity and fan speed sliders
   }
 
   getWaterLevel(): CharacteristicValue {
