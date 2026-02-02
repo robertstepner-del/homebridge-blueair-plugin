@@ -263,6 +263,7 @@ export class BlueAirAccessory {
   private loggedNoWritableTargetHumidity = false;
   private fanSpeedDebounceTimer?: ReturnType<typeof setTimeout>;
   private pendingFanSpeed?: number;
+  private pendingHkSpeed?: number;
 
   constructor(
     protected readonly platform: BlueAirPlatform,
@@ -885,8 +886,9 @@ export class BlueAirAccessory {
     const deviceSpeed = Math.round((hkSpeed / 100) * FAN_SPEED_MAX);
 
     // Debounce: HomeKit sends rapid updates when dragging slider
-    // Only send the final value after 300ms of no changes
+    // Store both values and only send after 500ms of no changes
     this.pendingFanSpeed = deviceSpeed;
+    this.pendingHkSpeed = hkSpeed;
     
     if (this.fanSpeedDebounceTimer) {
       clearTimeout(this.fanSpeedDebounceTimer);
@@ -894,6 +896,7 @@ export class BlueAirAccessory {
 
     this.fanSpeedDebounceTimer = setTimeout(async () => {
       const speedToSet = this.pendingFanSpeed;
+      const hkSpeedToLog = this.pendingHkSpeed;
       if (speedToSet === undefined) return;
       
       // Night mode activates when fan speed is below 10% (device speed 1 or less)
@@ -901,14 +904,14 @@ export class BlueAirAccessory {
       
       if (enableNightMode) {
         this.platform.log.info(
-          `[${this.device.name}] HomeKit → setFanSpeed: ${hkSpeed}% → enabling Night Mode`,
+          `[${this.device.name}] HomeKit → setFanSpeed: ${hkSpeedToLog}% → enabling Night Mode`,
         );
         this.humidityAutoControlEnabled = false;
         await this.device.setState("automode", false);
         await this.device.setState("nightmode", true);
       } else {
         this.platform.log.info(
-          `[${this.device.name}] HomeKit → setFanSpeed: ${hkSpeed}% → device speed ${speedToSet}`,
+          `[${this.device.name}] HomeKit → setFanSpeed: ${hkSpeedToLog}% → device speed ${speedToSet}`,
         );
         // Manual fan change disables auto humidity control, automode, and night mode
         this.humidityAutoControlEnabled = false;
@@ -918,7 +921,8 @@ export class BlueAirAccessory {
         await this.device.setState("fanspeed", speedToSet);
       }
       this.pendingFanSpeed = undefined;
-    }, 300);
+      this.pendingHkSpeed = undefined;
+    }, 500);
   }
 
   getFilterChangeIndication(): CharacteristicValue {
