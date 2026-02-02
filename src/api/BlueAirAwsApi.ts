@@ -223,15 +223,15 @@ export default class BlueAirAwsApi {
           return acc;
         }, {} as BlueAirDeviceState);
 
-        // Log all available attributes for debugging
-        this.logger.debug(
+        // Log all available attributes for debugging - use info level for visibility
+        this.logger.info(
           `[${device.configuration.di.name}] Available state keys: ${Object.keys(state).join(", ")}`,
+        );
+        this.logger.info(
+          `[${device.configuration.di.name}] Device state: ${JSON.stringify(state)}`,
         );
         this.logger.debug(
           `[${device.configuration.di.name}] Sensor data: ${JSON.stringify(sensorData)}`,
-        );
-        this.logger.debug(
-          `[${device.configuration.di.name}] Device state: ${JSON.stringify(state)}`,
         );
 
         return {
