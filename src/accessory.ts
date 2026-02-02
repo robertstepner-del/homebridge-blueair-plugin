@@ -509,18 +509,34 @@ export class BlueAirAccessory {
     const C = this.platform.Characteristic;
     const S = this.platform.Service;
 
-    // LED service - default to true if not explicitly set
+    // Display brightness - controls the main display LED (uses 'brightness' API variable)
     this.setupOptionalService(
       S.Lightbulb,
-      "Led",
-      "Led",
+      "DisplayBrightness",
+      "Display Brightness",
       this.configDev.led !== false,
       (svc) => {
-        svc.setCharacteristic(C.ConfiguredName, `${this.device.name} Led`);
-        svc.getCharacteristic(C.On).onGet(this.getLedOn.bind(this)).onSet(this.setLedOn.bind(this));
-        svc.getCharacteristic(C.Brightness).onGet(this.getLedBrightness.bind(this)).onSet(this.setLedBrightness.bind(this));
+        svc.setCharacteristic(C.ConfiguredName, `${this.device.name} Display`);
+        svc.getCharacteristic(C.On).onGet(this.getDisplayOn.bind(this)).onSet(this.setDisplayOn.bind(this));
+        svc.getCharacteristic(C.Brightness).onGet(this.getDisplayBrightness.bind(this)).onSet(this.setDisplayBrightness.bind(this));
       },
     );
+
+    // Night light brightness - controls the night light (uses 'nlbrightness' API variable)
+    // Only available on humidifiers
+    if (this.deviceType === "humidifier") {
+      this.setupOptionalService(
+        S.Lightbulb,
+        "NightLight",
+        "Night Light",
+        this.configDev.nightLight !== false,
+        (svc) => {
+          svc.setCharacteristic(C.ConfiguredName, `${this.device.name} Night Light`);
+          svc.getCharacteristic(C.On).onGet(this.getNightLightOn.bind(this)).onSet(this.setNightLightOn.bind(this));
+          svc.getCharacteristic(C.Brightness).onGet(this.getNightLightBrightness.bind(this)).onSet(this.setNightLightBrightness.bind(this));
+        },
+      );
+    }
 
     // Temperature sensor - default to true if not explicitly set
     this.setupOptionalService(
@@ -638,8 +654,12 @@ export class BlueAirAccessory {
           }
           break;
         case "brightness":
-          this.updateOptionalCharacteristic("Led", C.On, this.getLedOn());
-          this.updateOptionalCharacteristic("Led", C.Brightness, this.getLedBrightness());
+          this.updateOptionalCharacteristic("DisplayBrightness", C.On, this.getDisplayOn());
+          this.updateOptionalCharacteristic("DisplayBrightness", C.Brightness, this.getDisplayBrightness());
+          break;
+        case "nlbrightness":
+          this.updateOptionalCharacteristic("NightLight", C.On, this.getNightLightOn());
+          this.updateOptionalCharacteristic("NightLight", C.Brightness, this.getNightLightBrightness());
           break;
         case "pm25":
         case "pm10":
@@ -686,7 +706,7 @@ export class BlueAirAccessory {
       this.fanService?.updateCharacteristic(C.RotationSpeed, this.getRotationSpeed());
     }
     this.service.updateCharacteristic(C.RotationSpeed, this.getRotationSpeed());
-    this.updateOptionalCharacteristic("Led", C.On, this.getLedOn());
+    this.updateOptionalCharacteristic("DisplayBrightness", C.On, this.getDisplayOn());
     this.updateOptionalCharacteristic("GermShield", C.On, this.getGermShield());
     this.updateOptionalCharacteristic("NightMode", C.On, this.getNightMode());
     this.maybeAutoAdjustFanSpeed();
@@ -751,7 +771,8 @@ export class BlueAirAccessory {
     return this.device.sensorData.temperature || 0;
   }
 
-  getLedOn(): CharacteristicValue {
+  // Display brightness (main LED display)
+  getDisplayOn(): CharacteristicValue {
     return (
       this.device.state.brightness !== undefined &&
       this.device.state.brightness > 0 &&
@@ -759,18 +780,42 @@ export class BlueAirAccessory {
     );
   }
 
-  async setLedOn(value: CharacteristicValue) {
-    this.platform.log.info(`[${this.device.name}] HomeKit → setLedOn: ${value ? "ON" : "OFF"}`);
+  async setDisplayOn(value: CharacteristicValue) {
+    this.platform.log.info(`[${this.device.name}] HomeKit → setDisplayOn: ${value ? "ON" : "OFF"}`);
     await this.device.setLedOn(value as boolean);
   }
 
-  getLedBrightness(): CharacteristicValue {
+  getDisplayBrightness(): CharacteristicValue {
     return this.device.state.brightness || 0;
   }
 
-  async setLedBrightness(value: CharacteristicValue) {
-    this.platform.log.info(`[${this.device.name}] HomeKit → setLedBrightness: ${value}%`);
+  async setDisplayBrightness(value: CharacteristicValue) {
+    this.platform.log.info(`[${this.device.name}] HomeKit → setDisplayBrightness: ${value}%`);
     await this.device.setState("brightness", value as number);
+  }
+
+  // Night light brightness
+  getNightLightOn(): CharacteristicValue {
+    return (
+      this.device.state.nlbrightness !== undefined &&
+      this.device.state.nlbrightness > 0
+    );
+  }
+
+  async setNightLightOn(value: CharacteristicValue) {
+    this.platform.log.info(`[${this.device.name}] HomeKit → setNightLightOn: ${value ? "ON" : "OFF"}`);
+    // Turn on to previous brightness or 50%, turn off to 0
+    const brightness = value ? (this.device.state.nlbrightness || 50) : 0;
+    await this.device.setState("nlbrightness", brightness);
+  }
+
+  getNightLightBrightness(): CharacteristicValue {
+    return this.device.state.nlbrightness || 0;
+  }
+
+  async setNightLightBrightness(value: CharacteristicValue) {
+    this.platform.log.info(`[${this.device.name}] HomeKit → setNightLightBrightness: ${value}%`);
+    await this.device.setState("nlbrightness", value as number);
   }
 
   getNightMode(): CharacteristicValue {
@@ -947,10 +992,9 @@ export class BlueAirAccessory {
   }
 
   async setTargetRelativeHumidity(value: CharacteristicValue) {
-    this.platform.log.debug(`[${this.device.name}] setTargetRelativeHumidity called with value: ${value}`);
     const desired = Math.max(HUMIDITY_MIN, Math.min(HUMIDITY_MAX, value as number));
     this.platform.log.info(
-      `[${this.device.name}] HomeKit → setTargetRelativeHumidity: ${desired}% - enabling auto mode`,
+      `[${this.device.name}] HomeKit → setTargetHumidity: ${desired}% - enabling auto mode`,
     );
     const attr = this.findHumidityTargetAttribute();
     if (attr) {

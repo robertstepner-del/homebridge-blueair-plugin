@@ -48,6 +48,7 @@ export type DeviceConfig = {
   showFanTile?: boolean; // Show additional Fan tile (Humidifiers)
   defaultTargetHumidity?: number; // Preferred target if device does not expose writable target
   led: boolean;
+  nightLight?: boolean; // Show night light control (Humidifiers)
   airQualitySensor: boolean;
   co2Sensor: boolean;
   temperatureSensor: boolean;
