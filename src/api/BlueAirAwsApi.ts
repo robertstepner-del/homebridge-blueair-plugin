@@ -202,42 +202,40 @@ export default class BlueAirAwsApi {
 
     const deviceStatuses: BlueAirDeviceStatus[] = data.deviceInfo.map(
       (device) => {
-        const sensorData = device.sensordata.reduce((acc, sensor) => {
+        const deviceName = device.configuration.di.name;
+
+        // Map sensor data using lookup table
+        const sensorData: BlueAirDeviceSensorData = {};
+        for (const sensor of device.sensordata) {
           const key = BlueAirDeviceSensorDataMap[sensor.n];
           if (key) {
-            acc[key] = sensor.v;
-          } else {
-            // Log unmapped sensor data so user can see all available sensors
-            this.logger.debug(
-              `[${device.configuration.di.name}] Unmapped sensor: ${sensor.n} = ${sensor.v}`,
-            );
+            sensorData[key] = sensor.v;
           }
-          return acc;
-        }, {} as BlueAirDeviceSensorData);
+          // Uncomment to log unmapped sensors:
+          // else { this.logger.debug(`[${deviceName}] Unmapped sensor: ${sensor.n} = ${sensor.v}`); }
+        }
 
-        const state = device.states.reduce((acc, state) => {
-          if (state.v !== undefined) {
-            acc[state.n] = state.v;
-          } else if (state.vb !== undefined) {
-            acc[state.n] = state.vb;
+        // Parse device states - value can be numeric (v) or boolean (vb)
+        const state: BlueAirDeviceState = {};
+        for (const s of device.states) {
+          const value = s.v ?? s.vb;
+          if (value !== undefined) {
+            state[s.n] = value;
           } else {
-            this.logger.warn(
-              `getDeviceStatus: unknown state ${JSON.stringify(state)}`,
-            );
+            this.logger.warn(`getDeviceStatus: unknown state ${JSON.stringify(s)}`);
           }
-          return acc;
-        }, {} as BlueAirDeviceState);
+        }
 
         // Log all available attributes for debugging - use info level for visibility
-        this.logger.info(
-          `[${device.configuration.di.name}] Available state keys: ${Object.keys(state).join(", ")}`,
-        );
-        this.logger.info(
-          `[${device.configuration.di.name}] Device state: ${JSON.stringify(state)}`,
-        );
-        this.logger.debug(
-          `[${device.configuration.di.name}] Sensor data: ${JSON.stringify(sensorData)}`,
-        );
+        // this.logger.info(
+        //   `[${device.configuration.di.name}] Available state keys: ${Object.keys(state).join(", ")}`,
+        // );
+        // this.logger.info(
+        //   `[${device.configuration.di.name}] Device state: ${JSON.stringify(state)}`,
+        // );
+        // this.logger.debug(
+        //   `[${device.configuration.di.name}] Sensor data: ${JSON.stringify(sensorData)}`,
+        // );
 
         return {
           id: device.id,
@@ -337,29 +335,25 @@ export default class BlueAirAwsApi {
       return json as T;
     } catch (error) {
       const isRateLimit = error instanceof Error && error.message.startsWith('RATE_LIMIT:');
-      
+      const isTimeout = error instanceof Error && error.name === 'AbortError';
+      const attemptsMade = initialRetry - retries;
+
+      // Retry if attempts remaining and not a rate limit error
       if (retries > 0 && !isRateLimit) {
-        // Exponential backoff: wait longer between retries
-        const retryDelay = (initialRetry - retries + 1) * 1000;
+        const retryDelay = (attemptsMade + 1) * 1000; // Exponential backoff
         this.logger.debug(`Retrying API call in ${retryDelay}ms...`);
         await new Promise(resolve => setTimeout(resolve, retryDelay));
         return this.apiCall(url, data, method, headers, retries - 1, initialRetry);
-      } else {
-        if (error instanceof Error && error.name === "AbortError") {
-          throw new Error(
-            `API call failed after ${initialRetry - retries} retries with timeout.`,
-          );
-        } else if (isRateLimit) {
-          // Don't retry rate limit errors, just throw immediately
-          throw new Error(
-            (error as Error).message.replace('RATE_LIMIT:', ''),
-          );
-        } else {
-          throw new Error(
-            `API call failed after ${initialRetry - retries} retries with error: ${error}`,
-          );
-        }
       }
+
+      // Build appropriate error message
+      const errorMessage = isTimeout
+        ? `API call failed after ${attemptsMade} retries with timeout.`
+        : isRateLimit
+          ? (error as Error).message.replace('RATE_LIMIT:', '')
+          : `API call failed after ${attemptsMade} retries with error: ${error}`;
+
+      throw new Error(errorMessage);
     } finally {
       clearTimeout(timeout);
       release();
