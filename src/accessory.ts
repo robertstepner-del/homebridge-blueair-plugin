@@ -1,9 +1,18 @@
+import { FullBlueAirDeviceState } from "./api/BlueAirAwsApi";
 import {
-  BlueAirDeviceState,
-  FullBlueAirDeviceState,
-} from "./api/BlueAirAwsApi";
-import { CharacteristicValue, PlatformAccessory, Service, Characteristic, WithUUID } from "homebridge";
-import { DeviceConfig, DeviceCapabilities, detectCapabilities, formatCapabilities, Debouncer } from "./utils";
+  CharacteristicValue,
+  PlatformAccessory,
+  Service,
+  Characteristic,
+  WithUUID,
+} from "homebridge";
+import {
+  DeviceConfig,
+  DeviceCapabilities,
+  detectCapabilities,
+  formatCapabilities,
+  Debouncer,
+} from "./utils";
 import {
   HUMIDITY_MIN,
   HUMIDITY_MAX,
@@ -37,15 +46,21 @@ export class BlueAirAccessory {
   private lastManualOverride = 0;
   private lastAutoAdjust = 0;
   private loggedNoWritableTargetHumidity = false;
-  
+
   // Track last brightness for LED on/off toggle
   private lastBrightness: number;
-  
+
   // Debouncers for HomeKit slider interactions
-  private fanSpeedDebouncer: Debouncer<{ speed: number; isNightMode: boolean; isStandby: boolean; hkSpeed: number }>;
+  private fanSpeedDebouncer: Debouncer<{
+    speed: number;
+    isNightMode: boolean;
+    isStandby: boolean;
+    hkSpeed: number;
+  }>;
+
   private nlBrightnessDebouncer: Debouncer<number>;
   private humidityDebouncer: Debouncer<number>;
-  
+
   // Dynamic capabilities detected from device state keys
   private capabilities: DeviceCapabilities = {
     hasBrightness: false,
@@ -71,15 +86,24 @@ export class BlueAirAccessory {
     deviceType: DeviceType = "air-purifier",
   ) {
     this.deviceType = deviceType;
-    
+
     // Initialize last brightness from device state
     this.lastBrightness = this.device.state.brightness || 0;
-    
+
     // Initialize debouncers
-    this.fanSpeedDebouncer = new Debouncer(DEBOUNCE_DELAY_MS, this.executeFanSpeedChange.bind(this));
-    this.nlBrightnessDebouncer = new Debouncer(DEBOUNCE_DELAY_MS, this.executeNlBrightnessChange.bind(this));
-    this.humidityDebouncer = new Debouncer(DEBOUNCE_DELAY_MS, this.executeHumidityChange.bind(this));
-    
+    this.fanSpeedDebouncer = new Debouncer(
+      DEBOUNCE_DELAY_MS,
+      this.executeFanSpeedChange.bind(this),
+    );
+    this.nlBrightnessDebouncer = new Debouncer(
+      DEBOUNCE_DELAY_MS,
+      this.executeNlBrightnessChange.bind(this),
+    );
+    this.humidityDebouncer = new Debouncer(
+      DEBOUNCE_DELAY_MS,
+      this.executeHumidityChange.bind(this),
+    );
+
     // Detect capabilities from available state keys
     this.initCapabilities();
 
@@ -90,8 +114,13 @@ export class BlueAirAccessory {
   }
 
   private initCapabilities() {
-    this.capabilities = detectCapabilities(this.device.state, this.device.sensorData);
-    this.platform.log.info(`[${this.device.name}] Detected capabilities: ${formatCapabilities(this.capabilities)}`);
+    this.capabilities = detectCapabilities(
+      this.device.state,
+      this.device.sensorData,
+    );
+    this.platform.log.info(
+      `[${this.device.name}] Detected capabilities: ${formatCapabilities(this.capabilities)}`,
+    );
   }
 
   private setupAccessoryInformation() {
@@ -124,7 +153,7 @@ export class BlueAirAccessory {
     } else {
       this.setupAirPurifierService();
     }
-    
+
     // Common setup for all device types
     this.setupCommonServiceCharacteristics();
   }
@@ -214,21 +243,28 @@ export class BlueAirAccessory {
 
     // RelativeHumidityHumidifierThreshold for target humidity
     this.service
-      .getCharacteristic(this.platform.Characteristic.RelativeHumidityHumidifierThreshold)
+      .getCharacteristic(
+        this.platform.Characteristic.RelativeHumidityHumidifierThreshold,
+      )
       .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
       .onGet(this.getTargetRelativeHumidity.bind(this))
       .onSet(this.setTargetRelativeHumidity.bind(this));
 
     this.service
-      .getCharacteristic(this.platform.Characteristic.CurrentHumidifierDehumidifierState)
+      .getCharacteristic(
+        this.platform.Characteristic.CurrentHumidifierDehumidifierState,
+      )
       .onGet(this.getCurrentHumidifierState.bind(this));
 
     // Lock to HUMIDIFIER mode only
     this.service
-      .getCharacteristic(this.platform.Characteristic.TargetHumidifierDehumidifierState)
+      .getCharacteristic(
+        this.platform.Characteristic.TargetHumidifierDehumidifierState,
+      )
       .setProps({
         validValues: [
-          this.platform.Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER,
+          this.platform.Characteristic.TargetHumidifierDehumidifierState
+            .HUMIDIFIER,
         ],
       })
       .onGet(this.getTargetHumidifierState.bind(this))
@@ -275,7 +311,7 @@ export class BlueAirAccessory {
   /**
    * Helper to set up or remove an optional service based on config.
    * Returns the service if enabled, undefined otherwise.
-   * 
+   *
    * Note: By default, optional services are NOT linked to the primary service.
    * This means they appear as separate tiles in the Home app, which provides
    * a cleaner UX than stacked controls in the main control popup.
@@ -289,7 +325,10 @@ export class BlueAirAccessory {
     configure: (service: Service) => void,
     linkToMain = false, // Set to true to link service to primary (shows in control popup)
   ): Service | undefined {
-    const existingService = this.accessory.getServiceById(serviceConstructor, subtype);
+    const existingService = this.accessory.getServiceById(
+      serviceConstructor,
+      subtype,
+    );
 
     if (enabled) {
       const service =
@@ -344,8 +383,14 @@ export class BlueAirAccessory {
       this.capabilities.hasBrightness && this.configDev.led !== false,
       (svc) => {
         svc.setCharacteristic(C.ConfiguredName, `${this.device.name} Display`);
-        svc.getCharacteristic(C.On).onGet(this.getDisplayOn.bind(this)).onSet(this.setDisplayOn.bind(this));
-        svc.getCharacteristic(C.Brightness).onGet(this.getDisplayBrightness.bind(this)).onSet(this.setDisplayBrightness.bind(this));
+        svc
+          .getCharacteristic(C.On)
+          .onGet(this.getDisplayOn.bind(this))
+          .onSet(this.setDisplayOn.bind(this));
+        svc
+          .getCharacteristic(C.Brightness)
+          .onGet(this.getDisplayBrightness.bind(this))
+          .onSet(this.setDisplayBrightness.bind(this));
       },
     );
 
@@ -356,9 +401,16 @@ export class BlueAirAccessory {
       "Night Light",
       this.capabilities.hasNightLight && this.configDev.nightLight !== false,
       (svc) => {
-        svc.setCharacteristic(C.ConfiguredName, `${this.device.name} Night Light`);
-        svc.getCharacteristic(C.On).onGet(this.getNightLightOn.bind(this)).onSet(this.setNightLightOn.bind(this));
-        svc.getCharacteristic(C.Brightness)
+        svc.setCharacteristic(
+          C.ConfiguredName,
+          `${this.device.name} Night Light`,
+        );
+        svc
+          .getCharacteristic(C.On)
+          .onGet(this.getNightLightOn.bind(this))
+          .onSet(this.setNightLightOn.bind(this));
+        svc
+          .getCharacteristic(C.Brightness)
           .setProps({ minValue: 0, maxValue: 100, minStep: NL_HOMEKIT_STEP })
           .onGet(this.getNightLightBrightness.bind(this))
           .onSet(this.setNightLightBrightness.bind(this));
@@ -370,9 +422,12 @@ export class BlueAirAccessory {
       S.TemperatureSensor,
       "Temperature",
       "Temperature",
-      this.capabilities.hasTemperature && this.configDev.temperatureSensor !== false,
+      this.capabilities.hasTemperature &&
+        this.configDev.temperatureSensor !== false,
       (svc) => {
-        svc.getCharacteristic(C.CurrentTemperature).onGet(this.getCurrentTemperature.bind(this));
+        svc
+          .getCharacteristic(C.CurrentTemperature)
+          .onGet(this.getCurrentTemperature.bind(this));
       },
     );
 
@@ -392,7 +447,9 @@ export class BlueAirAccessory {
       "Humidity",
       this.capabilities.hasHumidity && this.configDev.humiditySensor !== false,
       (svc) => {
-        svc.getCharacteristic(C.CurrentRelativeHumidity).onGet(this.getCurrentRelativeHumidity.bind(this));
+        svc
+          .getCharacteristic(C.CurrentRelativeHumidity)
+          .onGet(this.getCurrentRelativeHumidity.bind(this));
       },
     );
 
@@ -401,12 +458,21 @@ export class BlueAirAccessory {
       S.AirQualitySensor,
       "AirQuality",
       "Air Quality",
-      this.capabilities.hasAirQuality && this.configDev.airQualitySensor !== false,
+      this.capabilities.hasAirQuality &&
+        this.configDev.airQualitySensor !== false,
       (svc) => {
-        svc.getCharacteristic(C.AirQuality).onGet(this.getAirQuality.bind(this));
-        svc.getCharacteristic(C.PM2_5Density).onGet(this.getPM2_5Density.bind(this));
-        svc.getCharacteristic(C.PM10Density).onGet(this.getPM10Density.bind(this));
-        svc.getCharacteristic(C.VOCDensity).onGet(this.getVOCDensity.bind(this));
+        svc
+          .getCharacteristic(C.AirQuality)
+          .onGet(this.getAirQuality.bind(this));
+        svc
+          .getCharacteristic(C.PM2_5Density)
+          .onGet(this.getPM2_5Density.bind(this));
+        svc
+          .getCharacteristic(C.PM10Density)
+          .onGet(this.getPM10Density.bind(this));
+        svc
+          .getCharacteristic(C.VOCDensity)
+          .onGet(this.getVOCDensity.bind(this));
       },
     );
 
@@ -417,8 +483,14 @@ export class BlueAirAccessory {
       "Germ Shield",
       this.capabilities.hasGermShield && this.configDev.germShield !== false,
       (svc) => {
-        svc.setCharacteristic(C.ConfiguredName, `${this.device.name} Germ Shield`);
-        svc.getCharacteristic(C.On).onGet(this.getGermShield.bind(this)).onSet(this.setGermShield.bind(this));
+        svc.setCharacteristic(
+          C.ConfiguredName,
+          `${this.device.name} Germ Shield`,
+        );
+        svc
+          .getCharacteristic(C.On)
+          .onGet(this.getGermShield.bind(this))
+          .onSet(this.setGermShield.bind(this));
       },
     );
   }
@@ -438,12 +510,15 @@ export class BlueAirAccessory {
     characteristic: WithUUID<new () => Characteristic>,
     value: CharacteristicValue,
   ): void {
-    this.getOptionalService(subtype)?.updateCharacteristic(characteristic, value);
+    this.getOptionalService(subtype)?.updateCharacteristic(
+      characteristic,
+      value,
+    );
   }
 
   updateCharacteristics(changedStates: Partial<FullBlueAirDeviceState>) {
     const C = this.platform.Characteristic;
-    
+
     for (const key of Object.keys(changedStates)) {
       this.platform.log.debug(`[${this.device.name}] ${key} changed`);
 
@@ -455,31 +530,67 @@ export class BlueAirAccessory {
           this.handleAutomodeChange();
           break;
         case "childlock":
-          this.service.updateCharacteristic(C.LockPhysicalControls, this.getLockPhysicalControls());
+          this.service.updateCharacteristic(
+            C.LockPhysicalControls,
+            this.getLockPhysicalControls(),
+          );
           break;
         case "fanspeed":
           this.handleFanspeedChange();
           break;
         case "filterusage":
-          this.filterMaintenanceService?.updateCharacteristic(C.FilterChangeIndication, this.getFilterChangeIndication());
-          this.filterMaintenanceService?.updateCharacteristic(C.FilterLifeLevel, this.getFilterLifeLevel());
+          this.filterMaintenanceService?.updateCharacteristic(
+            C.FilterChangeIndication,
+            this.getFilterChangeIndication(),
+          );
+          this.filterMaintenanceService?.updateCharacteristic(
+            C.FilterLifeLevel,
+            this.getFilterLifeLevel(),
+          );
           break;
         case "temperature":
-          this.updateOptionalCharacteristic("Temperature", C.CurrentTemperature, this.getCurrentTemperature());
+          this.updateOptionalCharacteristic(
+            "Temperature",
+            C.CurrentTemperature,
+            this.getCurrentTemperature(),
+          );
           break;
         case "humidity":
           // Update humidity on main service
-          this.service.updateCharacteristic(C.CurrentRelativeHumidity, this.getCurrentRelativeHumidity());
+          this.service.updateCharacteristic(
+            C.CurrentRelativeHumidity,
+            this.getCurrentRelativeHumidity(),
+          );
           // Also update optional humidity sensor tile
-          this.updateOptionalCharacteristic("Humidity", C.CurrentRelativeHumidity, this.getCurrentRelativeHumidity());
+          this.updateOptionalCharacteristic(
+            "Humidity",
+            C.CurrentRelativeHumidity,
+            this.getCurrentRelativeHumidity(),
+          );
           break;
         case "brightness":
-          this.updateOptionalCharacteristic("DisplayBrightness", C.On, this.getDisplayOn());
-          this.updateOptionalCharacteristic("DisplayBrightness", C.Brightness, this.getDisplayBrightness());
+          this.updateOptionalCharacteristic(
+            "DisplayBrightness",
+            C.On,
+            this.getDisplayOn(),
+          );
+          this.updateOptionalCharacteristic(
+            "DisplayBrightness",
+            C.Brightness,
+            this.getDisplayBrightness(),
+          );
           break;
         case "nlbrightness":
-          this.updateOptionalCharacteristic("NightLight", C.On, this.getNightLightOn());
-          this.updateOptionalCharacteristic("NightLight", C.Brightness, this.getNightLightBrightness());
+          this.updateOptionalCharacteristic(
+            "NightLight",
+            C.On,
+            this.getNightLightOn(),
+          );
+          this.updateOptionalCharacteristic(
+            "NightLight",
+            C.Brightness,
+            this.getNightLightBrightness(),
+          );
           break;
         case "pm25":
         case "pm10":
@@ -487,24 +598,37 @@ export class BlueAirAccessory {
           this.handleAirQualityChange(key);
           break;
         case "germshield":
-          this.updateOptionalCharacteristic("GermShield", C.On, this.getGermShield());
+          this.updateOptionalCharacteristic(
+            "GermShield",
+            C.On,
+            this.getGermShield(),
+          );
           break;
         case "nightmode":
           // Update the dropdown to reflect night mode state for humidifiers
           if (this.deviceType === "humidifier") {
-            this.service.updateCharacteristic(C.TargetHumidifierDehumidifierState, this.getTargetHumidifierState());
+            this.service.updateCharacteristic(
+              C.TargetHumidifierDehumidifierState,
+              this.getTargetHumidifierState(),
+            );
           }
           break;
         case "wlevel":
           // Update water level for humidifiers
           if (this.deviceType === "humidifier") {
-            this.service.updateCharacteristic(C.WaterLevel, this.getWaterLevel());
+            this.service.updateCharacteristic(
+              C.WaterLevel,
+              this.getWaterLevel(),
+            );
           }
           break;
         case "autorh":
           // Update target humidity for humidifiers
           if (this.deviceType === "humidifier") {
-            this.service.updateCharacteristic(C.RelativeHumidityHumidifierThreshold, this.getTargetRelativeHumidity());
+            this.service.updateCharacteristic(
+              C.RelativeHumidityHumidifierThreshold,
+              this.getTargetRelativeHumidity(),
+            );
           }
           break;
       }
@@ -516,17 +640,42 @@ export class BlueAirAccessory {
     this.service.updateCharacteristic(C.Active, this.getActive());
 
     if (this.deviceType === "air-purifier") {
-      this.service.updateCharacteristic(C.CurrentAirPurifierState, this.getCurrentAirPurifierState());
-      this.service.updateCharacteristic(C.TargetAirPurifierState, this.getTargetAirPurifierState());
+      this.service.updateCharacteristic(
+        C.CurrentAirPurifierState,
+        this.getCurrentAirPurifierState(),
+      );
+      this.service.updateCharacteristic(
+        C.TargetAirPurifierState,
+        this.getTargetAirPurifierState(),
+      );
     } else {
-      this.service.updateCharacteristic(C.CurrentHumidifierDehumidifierState, this.getCurrentHumidifierState());
-      this.service.updateCharacteristic(C.TargetHumidifierDehumidifierState, this.getTargetHumidifierState());
-      this.service.updateCharacteristic(C.CurrentRelativeHumidity, this.getCurrentRelativeHumidity());
-      this.service.updateCharacteristic(C.RelativeHumidityHumidifierThreshold, this.getTargetRelativeHumidity());
-      this.fanService?.updateCharacteristic(C.RotationSpeed, this.getRotationSpeed());
+      this.service.updateCharacteristic(
+        C.CurrentHumidifierDehumidifierState,
+        this.getCurrentHumidifierState(),
+      );
+      this.service.updateCharacteristic(
+        C.TargetHumidifierDehumidifierState,
+        this.getTargetHumidifierState(),
+      );
+      this.service.updateCharacteristic(
+        C.CurrentRelativeHumidity,
+        this.getCurrentRelativeHumidity(),
+      );
+      this.service.updateCharacteristic(
+        C.RelativeHumidityHumidifierThreshold,
+        this.getTargetRelativeHumidity(),
+      );
+      this.fanService?.updateCharacteristic(
+        C.RotationSpeed,
+        this.getRotationSpeed(),
+      );
     }
     this.service.updateCharacteristic(C.RotationSpeed, this.getRotationSpeed());
-    this.updateOptionalCharacteristic("DisplayBrightness", C.On, this.getDisplayOn());
+    this.updateOptionalCharacteristic(
+      "DisplayBrightness",
+      C.On,
+      this.getDisplayOn(),
+    );
     this.updateOptionalCharacteristic("GermShield", C.On, this.getGermShield());
     this.updateOptionalCharacteristic("NightMode", C.On, this.getNightMode());
     this.maybeAutoAdjustFanSpeed();
@@ -535,29 +684,49 @@ export class BlueAirAccessory {
   private handleAutomodeChange(): void {
     const C = this.platform.Characteristic;
     if (this.deviceType === "air-purifier") {
-      this.service.updateCharacteristic(C.TargetAirPurifierState, this.getTargetAirPurifierState());
+      this.service.updateCharacteristic(
+        C.TargetAirPurifierState,
+        this.getTargetAirPurifierState(),
+      );
     } else {
-      this.service.updateCharacteristic(C.TargetHumidifierDehumidifierState, this.getTargetHumidifierState());
+      this.service.updateCharacteristic(
+        C.TargetHumidifierDehumidifierState,
+        this.getTargetHumidifierState(),
+      );
     }
   }
 
   private handleFanspeedChange(): void {
     const C = this.platform.Characteristic;
     this.service.updateCharacteristic(C.RotationSpeed, this.getRotationSpeed());
-    this.fanService?.updateCharacteristic(C.RotationSpeed, this.getRotationSpeed());
+    this.fanService?.updateCharacteristic(
+      C.RotationSpeed,
+      this.getRotationSpeed(),
+    );
     if (this.deviceType === "air-purifier") {
-      this.service.updateCharacteristic(C.CurrentAirPurifierState, this.getCurrentAirPurifierState());
+      this.service.updateCharacteristic(
+        C.CurrentAirPurifierState,
+        this.getCurrentAirPurifierState(),
+      );
     } else {
-      this.service.updateCharacteristic(C.CurrentHumidifierDehumidifierState, this.getCurrentHumidifierState());
+      this.service.updateCharacteristic(
+        C.CurrentHumidifierDehumidifierState,
+        this.getCurrentHumidifierState(),
+      );
       // Update target state dropdown (Auto/Manual/Sleep) based on fanspeed
-      this.service.updateCharacteristic(C.TargetHumidifierDehumidifierState, this.getTargetHumidifierState());
+      this.service.updateCharacteristic(
+        C.TargetHumidifierDehumidifierState,
+        this.getTargetHumidifierState(),
+      );
     }
   }
 
   private handleAirQualityChange(sensor: string): void {
     const C = this.platform.Characteristic;
     const aqService = this.getOptionalService("AirQuality");
-    if (!aqService) return;
+    if (!aqService) {
+      return;
+    }
 
     switch (sensor) {
       case "pm25":
@@ -583,7 +752,9 @@ export class BlueAirAccessory {
 
   async setActive(value: CharacteristicValue) {
     const isActive = value === this.platform.Characteristic.Active.ACTIVE;
-    this.platform.log.info(`[${this.device.name}] HomeKit → setActive: ${isActive ? "ON" : "OFF"}`);
+    this.platform.log.info(
+      `[${this.device.name}] HomeKit → setActive: ${isActive ? "ON" : "OFF"}`,
+    );
     await this.device.setState("standby", !isActive);
   }
 
@@ -602,13 +773,15 @@ export class BlueAirAccessory {
 
   async setDisplayOn(value: CharacteristicValue) {
     const turnOn = value as boolean;
-    this.platform.log.info(`[${this.device.name}] HomeKit → setDisplayOn: ${turnOn ? "ON" : "OFF"}`);
-    
+    this.platform.log.info(
+      `[${this.device.name}] HomeKit → setDisplayOn: ${turnOn ? "ON" : "OFF"}`,
+    );
+
     // Save current brightness before turning off, restore when turning on
     if (!turnOn) {
       this.lastBrightness = this.device.state.brightness || 0;
     }
-    const brightness = turnOn ? (this.lastBrightness || 100) : 0;
+    const brightness = turnOn ? this.lastBrightness || 100 : 0;
     await this.device.setState("brightness", brightness);
   }
 
@@ -618,7 +791,9 @@ export class BlueAirAccessory {
 
   async setDisplayBrightness(value: CharacteristicValue) {
     const brightness = value as number;
-    this.platform.log.info(`[${this.device.name}] HomeKit → setDisplayBrightness: ${brightness}%`);
+    this.platform.log.info(
+      `[${this.device.name}] HomeKit → setDisplayBrightness: ${brightness}%`,
+    );
     // Update lastBrightness when user sets a non-zero value
     if (brightness > 0) {
       this.lastBrightness = brightness;
@@ -637,7 +812,9 @@ export class BlueAirAccessory {
   }
 
   async setNightLightOn(value: CharacteristicValue) {
-    this.platform.log.info(`[${this.device.name}] HomeKit → setNightLightOn: ${value ? "ON" : "OFF"}`);
+    this.platform.log.info(
+      `[${this.device.name}] HomeKit → setNightLightOn: ${value ? "ON" : "OFF"}`,
+    );
     const deviceBrightness = value ? NL_LEVELS.NORMAL : NL_LEVELS.OFF;
     await this.device.setState("nlbrightness", deviceBrightness);
   }
@@ -665,7 +842,9 @@ export class BlueAirAccessory {
   }
 
   async setNightMode(value: CharacteristicValue) {
-    this.platform.log.info(`[${this.device.name}] HomeKit → setNightMode: ${value ? "ON" : "OFF"}`);
+    this.platform.log.info(
+      `[${this.device.name}] HomeKit → setNightMode: ${value ? "ON" : "OFF"}`,
+    );
     await this.device.setState("nightmode", value as boolean);
   }
 
@@ -688,8 +867,11 @@ export class BlueAirAccessory {
   }
 
   async setTargetAirPurifierState(value: CharacteristicValue) {
-    const isAuto = value === this.platform.Characteristic.TargetAirPurifierState.AUTO;
-    this.platform.log.info(`[${this.device.name}] HomeKit → setTargetAirPurifierState: ${isAuto ? "AUTO" : "MANUAL"}`);
+    const isAuto =
+      value === this.platform.Characteristic.TargetAirPurifierState.AUTO;
+    this.platform.log.info(
+      `[${this.device.name}] HomeKit → setTargetAirPurifierState: ${isAuto ? "AUTO" : "MANUAL"}`,
+    );
     await this.device.setState("automode", isAuto);
   }
 
@@ -700,8 +882,12 @@ export class BlueAirAccessory {
   }
 
   async setLockPhysicalControls(value: CharacteristicValue) {
-    const isLocked = value === this.platform.Characteristic.LockPhysicalControls.CONTROL_LOCK_ENABLED;
-    this.platform.log.info(`[${this.device.name}] HomeKit → setLockPhysicalControls: ${isLocked ? "LOCKED" : "UNLOCKED"}`);
+    const isLocked =
+      value ===
+      this.platform.Characteristic.LockPhysicalControls.CONTROL_LOCK_ENABLED;
+    this.platform.log.info(
+      `[${this.device.name}] HomeKit → setLockPhysicalControls: ${isLocked ? "LOCKED" : "UNLOCKED"}`,
+    );
     await this.device.setState("childlock", isLocked);
   }
 
@@ -722,10 +908,10 @@ export class BlueAirAccessory {
   }
 
   /** Debounced execution for fan speed changes */
-  private async executeFanSpeedChange(params: { 
-    speed: number; 
-    isNightMode: boolean; 
-    isStandby: boolean; 
+  private async executeFanSpeedChange(params: {
+    speed: number;
+    isNightMode: boolean;
+    isStandby: boolean;
     hkSpeed: number;
   }): Promise<void> {
     const { speed, isNightMode, isStandby, hkSpeed } = params;
@@ -805,10 +991,18 @@ export class BlueAirAccessory {
     }
 
     const C = this.platform.Characteristic.AirQuality;
-    if (aqi <= AQI_THRESHOLDS.EXCELLENT) return C.EXCELLENT;
-    if (aqi <= AQI_THRESHOLDS.GOOD) return C.GOOD;
-    if (aqi <= AQI_THRESHOLDS.FAIR) return C.FAIR;
-    if (aqi <= AQI_THRESHOLDS.INFERIOR) return C.INFERIOR;
+    if (aqi <= AQI_THRESHOLDS.EXCELLENT) {
+      return C.EXCELLENT;
+    }
+    if (aqi <= AQI_THRESHOLDS.GOOD) {
+      return C.GOOD;
+    }
+    if (aqi <= AQI_THRESHOLDS.FAIR) {
+      return C.FAIR;
+    }
+    if (aqi <= AQI_THRESHOLDS.INFERIOR) {
+      return C.INFERIOR;
+    }
     return C.POOR;
   }
 
@@ -817,7 +1011,9 @@ export class BlueAirAccessory {
   }
 
   async setGermShield(value: CharacteristicValue) {
-    this.platform.log.info(`[${this.device.name}] HomeKit → setGermShield: ${value ? "ON" : "OFF"}`);
+    this.platform.log.info(
+      `[${this.device.name}] HomeKit → setGermShield: ${value ? "ON" : "OFF"}`,
+    );
     await this.device.setState("germshield", value as boolean);
   }
 
@@ -826,7 +1022,7 @@ export class BlueAirAccessory {
     // First, check for a manual override from config
     if (this.configDev.targetHumidityAttribute) {
       const key = this.configDev.targetHumidityAttribute;
-      const v = (this.device.state as any)[key];
+      const v = (this.device.state as Record<string, unknown>)[key];
       if (typeof v === "number") {
         return key;
       }
@@ -834,7 +1030,7 @@ export class BlueAirAccessory {
 
     const keys = Object.keys(this.device.state || {});
     const patterns = [
-      /^autorh$/i,          // BlueAir humidifier uses "autorh"
+      /^autorh$/i, // BlueAir humidifier uses "autorh"
       /target\s*hum/i,
       /hum\s*target/i,
       /humidity\s*target/i,
@@ -882,15 +1078,18 @@ export class BlueAirAccessory {
       return;
     }
 
-    const clampedHumidity = Math.max(HUMIDITY_MIN, Math.min(HUMIDITY_MAX, Math.round(currentHumidity)));
+    const clampedHumidity = Math.max(
+      HUMIDITY_MIN,
+      Math.min(HUMIDITY_MAX, Math.round(currentHumidity)),
+    );
     const attr = this.findHumidityTargetAttribute();
-    
+
     if (attr) {
       this.platform.log.info(
         `[${this.device.name}] Syncing target humidity to current: ${clampedHumidity}%`,
       );
       await this.device.setState(attr, clampedHumidity);
-      
+
       // Update HomeKit to reflect the new target immediately
       this.service.updateCharacteristic(
         this.platform.Characteristic.RelativeHumidityHumidifierThreshold,
@@ -916,12 +1115,17 @@ export class BlueAirAccessory {
       return Math.max(HUMIDITY_MIN, Math.min(HUMIDITY_MAX, v));
     }
     const fallback =
-      this.configDev.targetHumidity ?? this.configDev.defaultTargetHumidity ?? 60;
+      this.configDev.targetHumidity ??
+      this.configDev.defaultTargetHumidity ??
+      60;
     return Math.max(HUMIDITY_MIN, Math.min(HUMIDITY_MAX, fallback));
   }
 
   async setTargetRelativeHumidity(value: CharacteristicValue) {
-    const desired = Math.max(HUMIDITY_MIN, Math.min(HUMIDITY_MAX, value as number));
+    const desired = Math.max(
+      HUMIDITY_MIN,
+      Math.min(HUMIDITY_MAX, value as number),
+    );
     this.humidityDebouncer.call(desired);
   }
 
@@ -950,26 +1154,42 @@ export class BlueAirAccessory {
   }
 
   private maybeAutoAdjustFanSpeed() {
-    if (this.deviceType !== "humidifier") return;
-    if (!this.humidityAutoControlEnabled) return;
-    if (this.device.state.standby) return;
-    if (this.device.state.nightmode) return;
-    if (this.device.state.automode === false) return;
+    if (this.deviceType !== "humidifier") {
+      return;
+    }
+    if (!this.humidityAutoControlEnabled) {
+      return;
+    }
+    if (this.device.state.standby) {
+      return;
+    }
+    if (this.device.state.nightmode) {
+      return;
+    }
+    if (this.device.state.automode === false) {
+      return;
+    }
 
     const now = Date.now();
-    if (now - this.lastAutoAdjust < 60000) return; // adjust at most once per minute
-    if (now - this.lastManualOverride < 60000) return; // respect recent manual change
+    if (now - this.lastAutoAdjust < 60000) {
+      return;
+    } // adjust at most once per minute
+    if (now - this.lastManualOverride < 60000) {
+      return;
+    } // respect recent manual change
 
     const current = (this.device.sensorData.humidity ?? 0) as number;
     const target = this.getTargetRelativeHumidity() as number;
-    if (current === 0) return; // no data
+    if (current === 0) {
+      return;
+    } // no data
 
     const diff = target - current; // positive -> need more humidity
     const speed = (this.device.state.fanspeed ?? 0) as number;
 
     // Find current speed index in valid levels
     const speedIndex = FAN_SPEED_LEVELS.findIndex(
-      (lvl, i, arr) => speed <= lvl || i === arr.length - 1
+      (lvl, i, arr) => speed <= lvl || i === arr.length - 1,
     );
 
     let newSpeedIndex = speedIndex;
@@ -1008,9 +1228,11 @@ export class BlueAirAccessory {
   getTargetHumidifierState(): CharacteristicValue {
     // Always return HUMIDIFIER - dropdown is locked to single value
     // Night mode is controlled via fan speed slider (low speed = night mode)
-    return this.platform.Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER;
+    return this.platform.Characteristic.TargetHumidifierDehumidifierState
+      .HUMIDIFIER;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async setTargetHumidifierState(_value: CharacteristicValue) {
     // No-op - mode is locked to HUMIDIFIER
     // Auto/manual/night mode is controlled automatically via humidity and fan speed sliders

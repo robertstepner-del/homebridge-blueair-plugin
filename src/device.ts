@@ -1,6 +1,6 @@
 /**
  * BlueAirDevice - State management model for BlueAir devices
- * 
+ *
  * This class acts as a bridge between the platform (API) and accessories (HomeKit).
  * It holds device state, calculates AQI, and emits events for state changes.
  */
@@ -15,7 +15,9 @@ import {
 import { Mutex } from "async-mutex";
 import { AQI } from "./constants";
 
-export type BlueAirSensorDataWithAqi = BlueAirDeviceSensorData & { aqi?: number };
+export type BlueAirSensorDataWithAqi = BlueAirDeviceSensorData & {
+  aqi?: number;
+};
 
 type PendingChanges = {
   state: Partial<BlueAirDeviceState>;

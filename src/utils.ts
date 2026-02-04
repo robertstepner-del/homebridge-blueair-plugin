@@ -1,6 +1,9 @@
 // Combined utils from platformUtils.ts and settings.ts
 
-import { BlueAirDeviceState, BlueAirDeviceSensorData } from "./api/BlueAirAwsApi";
+import {
+  BlueAirDeviceState,
+  BlueAirDeviceSensorData,
+} from "./api/BlueAirAwsApi";
 
 export type Config = {
   name: string;
@@ -58,9 +61,13 @@ export function detectCapabilities(
     hasFilterUsage: "filterusage" in state,
     hasChildLock: "childlock" in state,
     hasFanSpeed: "fanspeed" in state,
-    hasHumidityTarget: "autorh" in state || 
-      Object.keys(state).some(k => /target.*hum|hum.*target|humidity.*set/i.test(k)),
-    hasTemperature: "temperature" in sensors && sensors.temperature !== undefined,
+    hasHumidityTarget:
+      "autorh" in state ||
+      Object.keys(state).some((k) =>
+        /target.*hum|hum.*target|humidity.*set/i.test(k),
+      ),
+    hasTemperature:
+      "temperature" in sensors && sensors.temperature !== undefined,
     hasHumidity: "humidity" in sensors && sensors.humidity !== undefined,
     hasAirQuality: "pm2_5" in sensors || "pm10" in sensors || "voc" in sensors,
   };
@@ -70,10 +77,12 @@ export function detectCapabilities(
  * Format capabilities for logging
  */
 export function formatCapabilities(capabilities: DeviceCapabilities): string {
-  return Object.entries(capabilities)
-    .filter(([, v]) => v)
-    .map(([k]) => k.replace("has", ""))
-    .join(", ") || "none";
+  return (
+    Object.entries(capabilities)
+      .filter(([, v]) => v)
+      .map(([k]) => k.replace("has", ""))
+      .join(", ") || "none"
+  );
 }
 
 export type DeviceConfig = {

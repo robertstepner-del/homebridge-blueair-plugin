@@ -39,9 +39,9 @@ export type BlueAirDeviceState = {
   disinfection?: boolean;
   disinftime?: number;
   // Humidifier specific
-  wlevel?: number;      // Water level (0-100)
-  autorh?: number;      // Auto target relative humidity
-  wickusage?: number;   // Wick filter usage
+  wlevel?: number; // Water level (0-100)
+  autorh?: number; // Auto target relative humidity
+  wickusage?: number; // Wick filter usage
   nlbrightness?: number; // Night light brightness
   [key: string]: string | number | boolean | undefined;
 };
@@ -210,9 +210,11 @@ export default class BlueAirAwsApi {
           const key = BlueAirDeviceSensorDataMap[sensor.n];
           if (key) {
             sensorData[key] = sensor.v;
+          } else {
+            this.logger.debug(
+              `[${deviceName}] Unmapped sensor: ${sensor.n} = ${sensor.v}`,
+            );
           }
-          // Uncomment to log unmapped sensors:
-          // else { this.logger.debug(`[${deviceName}] Unmapped sensor: ${sensor.n} = ${sensor.v}`); }
         }
 
         // Parse device states - value can be numeric (v) or boolean (vb)
@@ -222,7 +224,9 @@ export default class BlueAirAwsApi {
           if (value !== undefined) {
             state[s.n] = value;
           } else {
-            this.logger.warn(`getDeviceStatus: unknown state ${JSON.stringify(s)}`);
+            this.logger.warn(
+              `getDeviceStatus: unknown state ${JSON.stringify(s)}`,
+            );
           }
         }
 
@@ -334,23 +338,31 @@ export default class BlueAirAwsApi {
       }
       return json as T;
     } catch (error) {
-      const isRateLimit = error instanceof Error && error.message.startsWith('RATE_LIMIT:');
-      const isTimeout = error instanceof Error && error.name === 'AbortError';
+      const isRateLimit =
+        error instanceof Error && error.message.startsWith("RATE_LIMIT:");
+      const isTimeout = error instanceof Error && error.name === "AbortError";
       const attemptsMade = initialRetry - retries;
 
       // Retry if attempts remaining and not a rate limit error
       if (retries > 0 && !isRateLimit) {
         const retryDelay = (attemptsMade + 1) * 1000; // Exponential backoff
         this.logger.debug(`Retrying API call in ${retryDelay}ms...`);
-        await new Promise(resolve => setTimeout(resolve, retryDelay));
-        return this.apiCall(url, data, method, headers, retries - 1, initialRetry);
+        await new Promise((resolve) => setTimeout(resolve, retryDelay));
+        return this.apiCall(
+          url,
+          data,
+          method,
+          headers,
+          retries - 1,
+          initialRetry,
+        );
       }
 
       // Build appropriate error message
       const errorMessage = isTimeout
         ? `API call failed after ${attemptsMade} retries with timeout.`
         : isRateLimit
-          ? (error as Error).message.replace('RATE_LIMIT:', '')
+          ? (error as Error).message.replace("RATE_LIMIT:", "")
           : `API call failed after ${attemptsMade} retries with error: ${error}`;
 
       throw new Error(errorMessage);

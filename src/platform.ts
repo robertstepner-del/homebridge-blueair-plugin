@@ -10,7 +10,10 @@ import {
 
 import { PLATFORM_NAME, PLUGIN_NAME, Config, defaultConfig } from "./utils";
 import { defaultsDeep } from "lodash";
-import BlueAirAwsApi, { BlueAirDeviceStatus, DEVICE_TYPES } from "./api/BlueAirAwsApi";
+import BlueAirAwsApi, {
+  BlueAirDeviceStatus,
+  DEVICE_TYPES,
+} from "./api/BlueAirAwsApi";
 import { BlueAirDevice, BlueAirAccessory } from "./accessory";
 import EventEmitter from "events";
 
@@ -102,24 +105,29 @@ export class BlueAirPlatform
     } catch (error) {
       const err = error as Error;
       let retryDelay = this.platformConfig.pollingInterval * 1000;
-      
+
       // Check if this is a rate limit error
-      if (err.message.includes("rate limit") || err.message.includes("too many calls")) {
+      if (
+        err.message.includes("rate limit") ||
+        err.message.includes("too many calls")
+      ) {
         this.retryCount++;
         // Exponential backoff for rate limit: double the interval each time, up to 10 minutes
         retryDelay = Math.min(
-          this.platformConfig.pollingInterval * 1000 * Math.pow(2, this.retryCount),
-          600000 // Max 10 minutes
+          this.platformConfig.pollingInterval *
+            1000 *
+            Math.pow(2, this.retryCount),
+          600000, // Max 10 minutes
         );
         this.log.warn(
           `Rate limit exceeded (attempt ${this.retryCount}/${this.MAX_RETRY_COUNT}). ` +
-          `Backing off and retrying in ${Math.round(retryDelay / 1000)} seconds...`,
+            `Backing off and retrying in ${Math.round(retryDelay / 1000)} seconds...`,
         );
-        
+
         if (this.retryCount >= this.MAX_RETRY_COUNT) {
           this.log.error(
             `Rate limit retry limit reached. Please increase the polling interval in your config ` +
-            `(current: ${this.platformConfig.pollingInterval}s, recommended: ${this.platformConfig.pollingInterval * 2}s or more)`,
+              `(current: ${this.platformConfig.pollingInterval}s, recommended: ${this.platformConfig.pollingInterval * 2}s or more)`,
           );
           // Reset counter but keep long delay
           this.retryCount = 0;
@@ -133,14 +141,14 @@ export class BlueAirPlatform
         );
         this.log.debug("Error stack:", err.stack);
       }
-      
+
       this.polling = setTimeout(
         this.getValidDevicesStatus.bind(this),
         retryDelay,
       );
       return;
     }
-    
+
     // Schedule next update with normal interval
     this.polling = setTimeout(
       this.getValidDevicesStatus.bind(this),
@@ -188,17 +196,20 @@ export class BlueAirPlatform
       this.log.info("All configured devices have been added!");
     } catch (error) {
       const err = error as Error;
-      
+
       // Check if this is a rate limit error
-      if (err.message.includes("rate limit") || err.message.includes("too many calls")) {
+      if (
+        err.message.includes("rate limit") ||
+        err.message.includes("too many calls")
+      ) {
         if (retryCount < maxRetries) {
           // Exponential backoff: 30s, 60s, 120s, 240s, 480s
           const retryDelay = 30000 * Math.pow(2, retryCount);
           this.log.warn(
             `Rate limit during initialization (attempt ${retryCount + 1}/${maxRetries}). ` +
-            `Retrying in ${retryDelay / 1000} seconds...`,
+              `Retrying in ${retryDelay / 1000} seconds...`,
           );
-          
+
           setTimeout(async () => {
             await this.getInitialDeviceStates(retryCount + 1, maxRetries);
           }, retryDelay);
@@ -206,12 +217,12 @@ export class BlueAirPlatform
         } else {
           this.log.error(
             `Failed to initialize devices after ${maxRetries} attempts due to rate limiting. ` +
-            `Please wait a few minutes and restart Homebridge, or increase the polling interval.`,
+              `Please wait a few minutes and restart Homebridge, or increase the polling interval.`,
           );
           return;
         }
       }
-      
+
       // For non-rate-limit errors, retry once after 10 seconds
       if (retryCount === 0) {
         this.log.error("Error getting initial device states:", err.message);
@@ -220,7 +231,10 @@ export class BlueAirPlatform
           await this.getInitialDeviceStates(1, 1);
         }, 10000);
       } else {
-        this.log.error("Failed to get initial device states after retry:", err.message);
+        this.log.error(
+          "Failed to get initial device states after retry:",
+          err.message,
+        );
       }
     }
   }
@@ -251,7 +265,9 @@ export class BlueAirPlatform
       let success = false;
       try {
         await this.blueAirApi.setDeviceStatus(id, attribute, value);
-        this.log.info(`[${name}] API ✓ Successfully set ${attribute} = ${value}`);
+        this.log.info(
+          `[${name}] API ✓ Successfully set ${attribute} = ${value}`,
+        );
         success = true;
       } catch (error) {
         this.log.error(
