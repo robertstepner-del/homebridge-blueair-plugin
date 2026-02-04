@@ -8,12 +8,12 @@
 
 **Option 1: Install via Homebridge Config UI X:**
 
-Search for "Blueair Purifier" in in [homebridge-config-ui-x](https://github.com/oznu/homebridge-config-ui-x) and install `homebridge-blueair-purifier`.
+Search for "Blueair Plugin" in in [homebridge-config-ui-x](https://github.com/oznu/homebridge-config-ui-x) and install `homebridge-blueair-plugin`.
 
 **Option 2: Manually Install:**
 
 ```text
-sudo npm install -g homebridge-blueair-purifier
+sudo npm install -g homebridge-blueair-plugin
 ```
 
 ### Features

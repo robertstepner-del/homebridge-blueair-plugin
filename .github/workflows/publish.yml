@@ -35,7 +35,6 @@ jobs:
       - name: Setup Git
         run: |
           git config --global user.name "Github Actions"
-          git config --global user.email "kovapatrik@gmail.com"
       - name: Get the version
         id: get_version
         run: echo "version=$(npm pkg get version | tr -d '\"')" >> "$GITHUB_OUTPUT"

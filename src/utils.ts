@@ -121,7 +121,7 @@ export const defaultConfig: Config = {
 };
 
 export const PLATFORM_NAME = "blueair-purifier";
-export const PLUGIN_NAME = "homebridge-blueair-purifier";
+export const PLUGIN_NAME = "homebridge-blueair-plugin";
 
 /**
  * Generic debounce utility for HomeKit slider/control interactions.
