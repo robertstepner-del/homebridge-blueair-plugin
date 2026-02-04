@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.2.0 (2026-02-03)
+
+### Updates
+- Fixed ESLint and Prettier formatting issues
+- Moved Custom UI to correct `homebridge-ui` folder location
+- Added `defaultDeviceConfig` export for UI server
+- Updated documentation and README
+
 ## v1.0.0 (2026-02-03)
 
 ### Initial Release
