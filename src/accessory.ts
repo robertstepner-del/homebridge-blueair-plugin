@@ -1,252 +1,26 @@
-import EventEmitter from "events";
 import {
-  BlueAirDeviceSensorData,
   BlueAirDeviceState,
-  BlueAirDeviceStatus,
   FullBlueAirDeviceState,
 } from "./api/BlueAirAwsApi";
-import { Mutex } from "async-mutex";
 import { CharacteristicValue, PlatformAccessory, Service, Characteristic, WithUUID } from "homebridge";
-import { DeviceConfig, DeviceCapabilities, detectCapabilities, formatCapabilities } from "./utils";
+import { DeviceConfig, DeviceCapabilities, detectCapabilities, formatCapabilities, Debouncer } from "./utils";
+import {
+  HUMIDITY_MIN,
+  HUMIDITY_MAX,
+  FAN_SPEED_LEVELS,
+  NL_LEVELS,
+  DEBOUNCE_DELAY_MS,
+  AQI_THRESHOLDS,
+  mapToDeviceSpeed,
+  nlDeviceToHomeKit,
+  nlHomeKitToDevice,
+  nlDeviceToName,
+} from "./constants";
+import { BlueAirDevice } from "./device";
 import type { BlueAirPlatform } from "./platform";
 
-type AQILevels = {
-  AQI_LO: number[];
-  AQI_HI: number[];
-  CONC_LO: number[];
-  CONC_HI: number[];
-};
-
-// https://forum.airnowtech.org/t/the-aqi-equation-2024-valid-beginning-may-6th-2024
-const AQI: { [key: string]: AQILevels } = {
-  PM2_5: {
-    AQI_LO: [0, 51, 101, 151, 201, 301],
-    AQI_HI: [50, 100, 150, 200, 300, 500],
-    CONC_LO: [0.0, 9.1, 35.5, 55.5, 125.5, 225.5],
-    CONC_HI: [9.0, 35.4, 55.4, 125.4, 225.4, 325.4],
-  },
-  PM10: {
-    AQI_LO: [0, 51, 101, 151, 201, 301],
-    AQI_HI: [50, 100, 150, 200, 300, 500],
-    CONC_LO: [0, 55, 155, 255, 355, 425],
-    CONC_HI: [54, 154, 254, 354, 424, 604],
-  },
-  VOC: {
-    AQI_LO: [0, 51, 101, 151, 201, 301],
-    AQI_HI: [50, 100, 150, 200, 300, 500],
-    CONC_LO: [0, 221, 661, 1431, 2201, 3301],
-    CONC_HI: [220, 660, 1430, 2200, 3300, 5500],
-  },
-};
-
-// Fan speed: device uses 0-100 percentage
-
-// Humidity target range
-const HUMIDITY_MIN = 30;
-const HUMIDITY_MAX = 80;
-
-type BlueAirSensorDataWithAqi = BlueAirDeviceSensorData & { aqi?: number };
-
-type PendingChanges = {
-  state: Partial<BlueAirDeviceState>;
-  sensorData: Partial<BlueAirSensorDataWithAqi>;
-};
-
-interface BlueAirDeviceEvents {
-  stateUpdated: (changedStates: Partial<FullBlueAirDeviceState>) => void;
-  update: (newState: BlueAirDeviceStatus) => void;
-  setState: (data: {
-    id: string;
-    name: string;
-    attribute: string;
-    value: number | boolean;
-  }) => void;
-  setStateDone: (success: boolean) => void;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
-export interface BlueAirDevice {
-  on<K extends keyof BlueAirDeviceEvents>(
-    event: K,
-    listener: BlueAirDeviceEvents[K],
-  ): this;
-  emit<K extends keyof BlueAirDeviceEvents>(
-    event: K,
-    ...args: Parameters<BlueAirDeviceEvents[K]>
-  ): boolean;
-  once<K extends keyof BlueAirDeviceEvents>(
-    event: K,
-    listener: BlueAirDeviceEvents[K],
-  ): this;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
-export class BlueAirDevice extends EventEmitter {
-  public state: BlueAirDeviceState;
-  public sensorData: BlueAirSensorDataWithAqi;
-
-  public readonly id: string;
-  public readonly name: string;
-
-  private mutex: Mutex;
-
-  private currentChanges: PendingChanges;
-
-  private last_brightness: number;
-
-  constructor(device: BlueAirDeviceStatus) {
-    super();
-    this.id = device.id;
-    this.name = device.name;
-
-    this.state = device.state;
-    this.sensorData = {
-      ...device.sensorData,
-      aqi: undefined,
-    };
-    this.sensorData.aqi = this.calculateAqi();
-
-    this.mutex = new Mutex();
-    this.currentChanges = {
-      state: {},
-      sensorData: {},
-    };
-
-    this.last_brightness = this.state.brightness || 0;
-
-    this.on("update", this.updateState.bind(this));
-  }
-
-  private hasChanges(changes: PendingChanges): boolean {
-    return (
-      Object.keys(changes.state).length > 0 ||
-      Object.keys(changes.sensorData).length > 0
-    );
-  }
-
-  private async notifyStateUpdate(
-    newState?: Partial<BlueAirDeviceState>,
-    newSensorData?: Partial<BlueAirDeviceSensorData>,
-  ) {
-    this.currentChanges = {
-      state: {
-        ...this.currentChanges.state,
-        ...newState,
-      },
-      sensorData: {
-        ...this.currentChanges.sensorData,
-        ...newSensorData,
-      },
-    };
-
-    // always acquire the mutex to ensure all changes are eventually applied
-    const release = await this.mutex.acquire();
-
-    const changesToApply = this.currentChanges;
-    this.currentChanges = { state: {}, sensorData: {} };
-
-    // if there is a change, emit update event
-    if (this.hasChanges(changesToApply)) {
-      this.state = { ...this.state, ...changesToApply.state };
-      this.sensorData = { ...this.sensorData, ...changesToApply.sensorData };
-      this.emit("stateUpdated", {
-        ...changesToApply.state,
-        ...changesToApply.sensorData,
-      });
-    }
-
-    release();
-  }
-
-  public async setState(attribute: string, value: number | boolean) {
-    // Skip if value is unchanged (only check if attribute exists)
-    if (attribute in this.state && this.state[attribute] === value) {
-      return;
-    }
-
-    // Emit setState event - platform will handle API call and logging
-    this.emit("setState", { id: this.id, name: this.name, attribute, value });
-
-    const release = await this.mutex.acquire();
-
-    return new Promise<void>((resolve) => {
-      this.once("setStateDone", async (success) => {
-        release();
-        if (success) {
-          const newState: Partial<BlueAirDeviceState> = { [attribute]: value };
-          if (attribute === "nightmode" && value === true) {
-            newState["brightness"] = 0;
-          }
-          await this.notifyStateUpdate(newState);
-        }
-        resolve();
-      });
-    });
-  }
-
-  public async setLedOn(value: boolean) {
-    if (!value) {
-      this.last_brightness = this.state.brightness || 0;
-    }
-    const brightness = value ? this.last_brightness : 0;
-    await this.setState("brightness", brightness);
-  }
-
-  private async updateState(newState: BlueAirDeviceStatus) {
-    const changedState: Partial<BlueAirDeviceState> = {};
-    const changedSensorData: Partial<BlueAirSensorDataWithAqi> = {};
-
-    for (const [k, v] of Object.entries(newState.state)) {
-      if (this.state[k] !== v) {
-        changedState[k] = v;
-      }
-    }
-    for (const [k, v] of Object.entries(newState.sensorData)) {
-      if (this.sensorData[k] !== v) {
-        changedSensorData[k] = v;
-        if (k === "pm25" || k === "pm10" || k === "voc") {
-          changedSensorData.aqi = this.calculateAqi();
-        }
-      }
-    }
-    await this.notifyStateUpdate(changedState, changedSensorData);
-  }
-
-  private calculateAqi(): number | undefined {
-    if (
-      this.sensorData.pm2_5 === undefined &&
-      this.sensorData.pm10 === undefined &&
-      this.sensorData.voc === undefined
-    ) {
-      return undefined;
-    }
-
-    const pm2_5 = Math.round((this.sensorData.pm2_5 || 0) * 10) / 10;
-    const pm10 = this.sensorData.pm10 || 0;
-    const voc = this.sensorData.voc || 0;
-
-    const aqi_pm2_5 = this.calculateAqiForSensor(pm2_5, "PM2_5");
-    const aqi_pm10 = this.calculateAqiForSensor(pm10, "PM10");
-    const aqi_voc = this.calculateAqiForSensor(voc, "VOC");
-
-    return Math.max(aqi_pm2_5, aqi_pm10, aqi_voc);
-  }
-
-  private calculateAqiForSensor(value: number, sensor: string) {
-    const levels = AQI[sensor];
-    for (let i = 0; i < levels.AQI_LO.length; i++) {
-      if (value >= levels.CONC_LO[i] && value <= levels.CONC_HI[i]) {
-        return Math.round(
-          ((levels.AQI_HI[i] - levels.AQI_LO[i]) /
-            (levels.CONC_HI[i] - levels.CONC_LO[i])) *
-            (value - levels.CONC_LO[i]) +
-            levels.AQI_LO[i],
-        );
-      }
-    }
-    return 0;
-  }
-}
+// Re-export BlueAirDevice for backward compatibility
+export { BlueAirDevice } from "./device";
 
 type DeviceType = "humidifier" | "air-purifier";
 
@@ -260,13 +34,14 @@ export class BlueAirAccessory {
   private lastManualOverride = 0;
   private lastAutoAdjust = 0;
   private loggedNoWritableTargetHumidity = false;
-  private fanSpeedDebounceTimer?: ReturnType<typeof setTimeout>;
-  private pendingFanSpeed?: number;
-  private pendingHkSpeed?: number;
-  private nlBrightnessDebounceTimer?: ReturnType<typeof setTimeout>;
-  private pendingNlBrightness?: number;
-  private humidityDebounceTimer?: ReturnType<typeof setTimeout>;
-  private pendingHumidity?: number;
+  
+  // Track last brightness for LED on/off toggle
+  private lastBrightness: number;
+  
+  // Debouncers for HomeKit slider interactions
+  private fanSpeedDebouncer: Debouncer<{ deviceSpeed: number; hkSpeed: number }>;
+  private nlBrightnessDebouncer: Debouncer<number>;
+  private humidityDebouncer: Debouncer<number>;
   
   // Dynamic capabilities detected from device state keys
   private capabilities: DeviceCapabilities = {
@@ -293,6 +68,14 @@ export class BlueAirAccessory {
     deviceType: DeviceType = "air-purifier",
   ) {
     this.deviceType = deviceType;
+    
+    // Initialize last brightness from device state
+    this.lastBrightness = this.device.state.brightness || 0;
+    
+    // Initialize debouncers
+    this.fanSpeedDebouncer = new Debouncer(DEBOUNCE_DELAY_MS, this.executeFanSpeedChange.bind(this));
+    this.nlBrightnessDebouncer = new Debouncer(DEBOUNCE_DELAY_MS, this.executeNlBrightnessChange.bind(this));
+    this.humidityDebouncer = new Debouncer(DEBOUNCE_DELAY_MS, this.executeHumidityChange.bind(this));
     
     // Detect capabilities from available state keys
     this.initCapabilities();
@@ -338,6 +121,51 @@ export class BlueAirAccessory {
     } else {
       this.setupAirPurifierService();
     }
+    
+    // Common setup for all device types
+    this.setupCommonServiceCharacteristics();
+  }
+
+  /**
+   * Setup characteristics common to both Air Purifier and Humidifier services
+   */
+  private setupCommonServiceCharacteristics() {
+    const C = this.platform.Characteristic;
+
+    // Active state
+    this.service
+      .getCharacteristic(C.Active)
+      .onGet(this.getActive.bind(this))
+      .onSet(this.setActive.bind(this));
+
+    // Lock physical controls (child lock)
+    this.service
+      .getCharacteristic(C.LockPhysicalControls)
+      .onGet(this.getLockPhysicalControls.bind(this))
+      .onSet(this.setLockPhysicalControls.bind(this));
+
+    // Rotation speed (fan speed) - 0-100% scale
+    this.service
+      .getCharacteristic(C.RotationSpeed)
+      .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
+      .onGet(this.getRotationSpeed.bind(this))
+      .onSet(this.setRotationSpeed.bind(this));
+
+    // Filter maintenance service
+    this.filterMaintenanceService =
+      this.accessory.getService(this.platform.Service.FilterMaintenance) ||
+      this.accessory.addService(this.platform.Service.FilterMaintenance);
+
+    this.filterMaintenanceService
+      .getCharacteristic(C.FilterChangeIndication)
+      .onGet(this.getFilterChangeIndication.bind(this));
+
+    this.filterMaintenanceService
+      .getCharacteristic(C.FilterLifeLevel)
+      .onGet(this.getFilterLifeLevel.bind(this));
+
+    // Link for grouping in Home app
+    this.service.addLinkedService(this.filterMaintenanceService);
   }
 
   private setupAirPurifierService() {
@@ -351,11 +179,6 @@ export class BlueAirAccessory {
     );
 
     this.service
-      .getCharacteristic(this.platform.Characteristic.Active)
-      .onGet(this.getActive.bind(this))
-      .onSet(this.setActive.bind(this));
-
-    this.service
       .getCharacteristic(this.platform.Characteristic.CurrentAirPurifierState)
       .onGet(this.getCurrentAirPurifierState.bind(this));
 
@@ -363,33 +186,6 @@ export class BlueAirAccessory {
       .getCharacteristic(this.platform.Characteristic.TargetAirPurifierState)
       .onGet(this.getTargetAirPurifierState.bind(this))
       .onSet(this.setTargetAirPurifierState.bind(this));
-
-    this.service
-      .getCharacteristic(this.platform.Characteristic.LockPhysicalControls)
-      .onGet(this.getLockPhysicalControls.bind(this))
-      .onSet(this.setLockPhysicalControls.bind(this));
-
-    // Use 0–100% scale for HomeKit; map internally to device speed (Sleep/1/2/3)
-    this.service
-      .getCharacteristic(this.platform.Characteristic.RotationSpeed)
-      .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
-      .onGet(this.getRotationSpeed.bind(this))
-      .onSet(this.setRotationSpeed.bind(this));
-
-    this.filterMaintenanceService =
-      this.accessory.getService(this.platform.Service.FilterMaintenance) ||
-      this.accessory.addService(this.platform.Service.FilterMaintenance);
-
-    this.filterMaintenanceService
-      .getCharacteristic(this.platform.Characteristic.FilterChangeIndication)
-      .onGet(this.getFilterChangeIndication.bind(this));
-
-    this.filterMaintenanceService
-      .getCharacteristic(this.platform.Characteristic.FilterLifeLevel)
-      .onGet(this.getFilterLifeLevel.bind(this));
-
-    // Link for grouping in Home app
-    this.service.addLinkedService(this.filterMaintenanceService);
   }
 
   private setupHumidifierService() {
@@ -403,15 +199,10 @@ export class BlueAirAccessory {
     );
 
     this.service
-      .getCharacteristic(this.platform.Characteristic.Active)
-      .onGet(this.getActive.bind(this))
-      .onSet(this.setActive.bind(this));
-
-    this.service
       .getCharacteristic(this.platform.Characteristic.CurrentRelativeHumidity)
       .onGet(this.getCurrentRelativeHumidity.bind(this));
 
-    // RelativeHumidityHumidifierThreshold is the correct characteristic for target humidity in HumidifierDehumidifier service
+    // RelativeHumidityHumidifierThreshold for target humidity
     this.service
       .getCharacteristic(this.platform.Characteristic.RelativeHumidityHumidifierThreshold)
       .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
@@ -419,19 +210,12 @@ export class BlueAirAccessory {
       .onSet(this.setTargetRelativeHumidity.bind(this));
 
     this.service
-      .getCharacteristic(
-        this.platform.Characteristic.CurrentHumidifierDehumidifierState,
-      )
+      .getCharacteristic(this.platform.Characteristic.CurrentHumidifierDehumidifierState)
       .onGet(this.getCurrentHumidifierState.bind(this));
 
-    // Lock to HUMIDIFIER mode only - no dropdown selector
-    // Auto/manual mode is handled automatically based on which control the user adjusts:
-    // - Adjusting humidity target → enables auto mode
-    // - Adjusting fan speed → disables auto mode (manual)
+    // Lock to HUMIDIFIER mode only
     this.service
-      .getCharacteristic(
-        this.platform.Characteristic.TargetHumidifierDehumidifierState,
-      )
+      .getCharacteristic(this.platform.Characteristic.TargetHumidifierDehumidifierState)
       .setProps({
         validValues: [
           this.platform.Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER,
@@ -440,62 +224,42 @@ export class BlueAirAccessory {
       .onGet(this.getTargetHumidifierState.bind(this))
       .onSet(this.setTargetHumidifierState.bind(this));
 
-    // Use 0–100% scale for HomeKit; map internally to device speed (Sleep/1/2/3)
-    this.service
-      .getCharacteristic(this.platform.Characteristic.RotationSpeed)
-      .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
-      .onGet(this.getRotationSpeed.bind(this))
-      .onSet(this.setRotationSpeed.bind(this));
-
-    // setup separate Fan service for visibility in Home app (configurable)
-    if (this.configDev.showFanTile !== false) {
-      this.fanService =
-        this.accessory.getService(this.platform.Service.Fanv2) ||
-        this.accessory.addService(this.platform.Service.Fanv2, "Fan", "Fan");
-
-      this.fanService.setCharacteristic(
-        this.platform.Characteristic.Name,
-        this.configDev.name + " Fan",
-      );
-
-      this.fanService
-        .getCharacteristic(this.platform.Characteristic.Active)
-        .onGet(this.getActive.bind(this))
-        .onSet(this.setActive.bind(this));
-
-      this.fanService
-        .getCharacteristic(this.platform.Characteristic.RotationSpeed)
-        .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
-        .onGet(this.getRotationSpeed.bind(this))
-        .onSet(this.setRotationSpeed.bind(this));
-
-      // Link the service for better UI grouping
-      this.service.addLinkedService(this.fanService);
-    }
-
-    this.service
-      .getCharacteristic(this.platform.Characteristic.LockPhysicalControls)
-      .onGet(this.getLockPhysicalControls.bind(this))
-      .onSet(this.setLockPhysicalControls.bind(this));
-
+    // Water level
     this.service
       .getCharacteristic(this.platform.Characteristic.WaterLevel)
       .onGet(this.getWaterLevel.bind(this));
 
-    this.filterMaintenanceService =
-      this.accessory.getService(this.platform.Service.FilterMaintenance) ||
-      this.accessory.addService(this.platform.Service.FilterMaintenance);
+    // Optional separate Fan tile for Home app visibility
+    if (this.configDev.showFanTile !== false) {
+      this.setupFanService();
+    }
+  }
 
-    this.filterMaintenanceService
-      .getCharacteristic(this.platform.Characteristic.FilterChangeIndication)
-      .onGet(this.getFilterChangeIndication.bind(this));
+  /**
+   * Setup separate Fan service for humidifiers (optional)
+   */
+  private setupFanService() {
+    const C = this.platform.Characteristic;
 
-    this.filterMaintenanceService
-      .getCharacteristic(this.platform.Characteristic.FilterLifeLevel)
-      .onGet(this.getFilterLifeLevel.bind(this));
+    this.fanService =
+      this.accessory.getService(this.platform.Service.Fanv2) ||
+      this.accessory.addService(this.platform.Service.Fanv2, "Fan", "Fan");
 
-    // Link for grouping in Home app
-    this.service.addLinkedService(this.filterMaintenanceService);
+    this.fanService.setCharacteristic(C.Name, this.configDev.name + " Fan");
+
+    this.fanService
+      .getCharacteristic(C.Active)
+      .onGet(this.getActive.bind(this))
+      .onSet(this.setActive.bind(this));
+
+    this.fanService
+      .getCharacteristic(C.RotationSpeed)
+      .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
+      .onGet(this.getRotationSpeed.bind(this))
+      .onSet(this.setRotationSpeed.bind(this));
+
+    // Link for better UI grouping
+    this.service.addLinkedService(this.fanService);
   }
 
   /**
@@ -812,8 +576,15 @@ export class BlueAirAccessory {
   }
 
   async setDisplayOn(value: CharacteristicValue) {
-    this.platform.log.info(`[${this.device.name}] HomeKit → setDisplayOn: ${value ? "ON" : "OFF"}`);
-    await this.device.setLedOn(value as boolean);
+    const turnOn = value as boolean;
+    this.platform.log.info(`[${this.device.name}] HomeKit → setDisplayOn: ${turnOn ? "ON" : "OFF"}`);
+    
+    // Save current brightness before turning off, restore when turning on
+    if (!turnOn) {
+      this.lastBrightness = this.device.state.brightness || 0;
+    }
+    const brightness = turnOn ? (this.lastBrightness || 100) : 0;
+    await this.device.setState("brightness", brightness);
   }
 
   getDisplayBrightness(): CharacteristicValue {
@@ -821,40 +592,16 @@ export class BlueAirAccessory {
   }
 
   async setDisplayBrightness(value: CharacteristicValue) {
-    this.platform.log.info(`[${this.device.name}] HomeKit → setDisplayBrightness: ${value}%`);
-    await this.device.setState("brightness", value as number);
-  }
-
-  // Night light has 3 levels + off:
-  // Device: 0 = off, 1 = warm, 2 = normal, 3 = bright
-  // HomeKit: 0 = off, 1-33 = warm, 34-66 = normal, 67-100 = bright
-  private readonly NL_LEVELS = { OFF: 0, WARM: 1, NORMAL: 2, BRIGHT: 3 };
-
-  private nlDeviceToHomeKit(deviceValue: number): number {
-    switch (deviceValue) {
-      case 0: return 0;
-      case 1: return 33;  // warm
-      case 2: return 66;  // normal
-      case 3: return 100; // bright
-      default: return 0;
+    const brightness = value as number;
+    this.platform.log.info(`[${this.device.name}] HomeKit → setDisplayBrightness: ${brightness}%`);
+    // Update lastBrightness when user sets a non-zero value
+    if (brightness > 0) {
+      this.lastBrightness = brightness;
     }
+    await this.device.setState("brightness", brightness);
   }
 
-  private nlHomeKitToDevice(hkValue: number): number {
-    if (hkValue === 0) return this.NL_LEVELS.OFF;
-    if (hkValue <= 33) return this.NL_LEVELS.WARM;
-    if (hkValue <= 66) return this.NL_LEVELS.NORMAL;
-    return this.NL_LEVELS.BRIGHT;
-  }
-
-  private nlDeviceToName(deviceValue: number): string {
-    switch (deviceValue) {
-      case 1: return "Warm";
-      case 2: return "Normal";
-      case 3: return "Bright";
-      default: return "Off";
-    }
-  }
+  // Night light uses imported NL_LEVELS and helper functions from constants.ts
 
   getNightLightOn(): CharacteristicValue {
     return (
@@ -866,36 +613,26 @@ export class BlueAirAccessory {
 
   async setNightLightOn(value: CharacteristicValue) {
     this.platform.log.info(`[${this.device.name}] HomeKit → setNightLightOn: ${value ? "ON" : "OFF"}`);
-    // Turn on to Normal (99), turn off to 0
-    const deviceBrightness = value ? this.NL_LEVELS.NORMAL : this.NL_LEVELS.OFF;
+    const deviceBrightness = value ? NL_LEVELS.NORMAL : NL_LEVELS.OFF;
     await this.device.setState("nlbrightness", deviceBrightness);
   }
 
   getNightLightBrightness(): CharacteristicValue {
-    return this.nlDeviceToHomeKit(this.device.state.nlbrightness || 0);
+    return nlDeviceToHomeKit(this.device.state.nlbrightness || 0);
   }
 
   async setNightLightBrightness(value: CharacteristicValue) {
     const hkValue = value as number;
-    const deviceValue = this.nlHomeKitToDevice(hkValue);
+    const deviceValue = nlHomeKitToDevice(hkValue);
+    this.nlBrightnessDebouncer.call(deviceValue);
+  }
 
-    // Debounce: HomeKit sends rapid updates when dragging slider
-    this.pendingNlBrightness = deviceValue;
-
-    if (this.nlBrightnessDebounceTimer) {
-      clearTimeout(this.nlBrightnessDebounceTimer);
-    }
-
-    this.nlBrightnessDebounceTimer = setTimeout(async () => {
-      const valueToSet = this.pendingNlBrightness;
-      if (valueToSet === undefined) return;
-
-      this.platform.log.info(
-        `[${this.device.name}] HomeKit → setNightLightBrightness: ${this.nlDeviceToName(valueToSet)} (${valueToSet})`,
-      );
-      await this.device.setState("nlbrightness", valueToSet);
-      this.pendingNlBrightness = undefined;
-    }, 500);
+  /** Debounced execution for night light brightness */
+  private async executeNlBrightnessChange(deviceValue: number): Promise<void> {
+    this.platform.log.info(
+      `[${this.device.name}] HomeKit → setNightLightBrightness: ${nlDeviceToName(deviceValue)} (${deviceValue})`,
+    );
+    await this.device.setState("nlbrightness", deviceValue);
   }
 
   getNightMode(): CharacteristicValue {
@@ -943,16 +680,7 @@ export class BlueAirAccessory {
     await this.device.setState("childlock", isLocked);
   }
 
-  // Fan speed levels: 0 (off/night), 11 (low), 37 (medium), 64 (high)
-  private readonly FAN_SPEED_LEVELS = [0, 11, 37, 64];
-
-  // Map HomeKit percentage to nearest device speed level
-  private mapToDeviceSpeed(hkSpeed: number): number {
-    if (hkSpeed <= 10) return 0; // Night mode / off
-    if (hkSpeed <= 36) return 11; // Low
-    if (hkSpeed <= 63) return 37; // Medium
-    return 64; // High
-  }
+  // Fan speed uses imported FAN_SPEED_LEVELS and mapToDeviceSpeed from constants.ts
 
   // Map device speed to HomeKit percentage (return actual device value for display)
   getRotationSpeed(): CharacteristicValue {
@@ -962,59 +690,44 @@ export class BlueAirAccessory {
 
   async setRotationSpeed(value: CharacteristicValue) {
     const hkSpeed = Math.max(0, Math.min(100, value as number));
-    // Map to valid device speed levels
-    const deviceSpeed = this.mapToDeviceSpeed(hkSpeed);
+    const deviceSpeed = mapToDeviceSpeed(hkSpeed);
+    this.fanSpeedDebouncer.call({ deviceSpeed, hkSpeed });
+  }
 
-    // Debounce: HomeKit sends rapid updates when dragging slider
-    // Store both values and only send after 500ms of no changes
-    this.pendingFanSpeed = deviceSpeed;
-    this.pendingHkSpeed = hkSpeed;
-    
-    if (this.fanSpeedDebounceTimer) {
-      clearTimeout(this.fanSpeedDebounceTimer);
-    }
+  /** Debounced execution for fan speed changes */
+  private async executeFanSpeedChange(params: { deviceSpeed: number; hkSpeed: number }): Promise<void> {
+    const { deviceSpeed, hkSpeed } = params;
+    const enableNightMode = deviceSpeed <= 10 && this.capabilities.hasNightMode;
 
-    this.fanSpeedDebounceTimer = setTimeout(async () => {
-      const speedToSet = this.pendingFanSpeed;
-      const hkSpeedToLog = this.pendingHkSpeed;
-      if (speedToSet === undefined) return;
-      
-      // Night mode activates when fan speed is 10% or below
-      const enableNightMode = speedToSet <= 10 && this.capabilities.hasNightMode;
-      
-      try {
-        if (enableNightMode) {
-          this.platform.log.info(
-            `[${this.device.name}] HomeKit → setFanSpeed: ${hkSpeedToLog}% → enabling Night Mode`,
-          );
-          this.humidityAutoControlEnabled = false;
-          if (this.capabilities.hasAutoMode) {
-            await this.device.setState("automode", false);
-          }
-          await this.device.setState("nightmode", true);
-        } else {
-          this.platform.log.info(
-            `[${this.device.name}] HomeKit → setFanSpeed: ${hkSpeedToLog}% → device speed ${speedToSet}`,
-          );
-          // Manual fan change disables auto humidity control, automode, and night mode
-          this.humidityAutoControlEnabled = false;
-          this.lastManualOverride = Date.now();
-          if (this.capabilities.hasNightMode) {
-            await this.device.setState("nightmode", false);
-          }
-          if (this.capabilities.hasAutoMode) {
-            await this.device.setState("automode", false);
-          }
-          await this.device.setState("fanspeed", speedToSet);
-        }
-      } catch (error) {
-        this.platform.log.error(
-          `[${this.device.name}] Failed to set fan speed: ${error}`,
+    try {
+      if (enableNightMode) {
+        this.platform.log.info(
+          `[${this.device.name}] HomeKit → setFanSpeed: ${hkSpeed}% → enabling Night Mode`,
         );
+        this.humidityAutoControlEnabled = false;
+        if (this.capabilities.hasAutoMode) {
+          await this.device.setState("automode", false);
+        }
+        await this.device.setState("nightmode", true);
+      } else {
+        this.platform.log.info(
+          `[${this.device.name}] HomeKit → setFanSpeed: ${hkSpeed}% → device speed ${deviceSpeed}`,
+        );
+        this.humidityAutoControlEnabled = false;
+        this.lastManualOverride = Date.now();
+        if (this.capabilities.hasNightMode) {
+          await this.device.setState("nightmode", false);
+        }
+        if (this.capabilities.hasAutoMode) {
+          await this.device.setState("automode", false);
+        }
+        await this.device.setState("fanspeed", deviceSpeed);
       }
-      this.pendingFanSpeed = undefined;
-      this.pendingHkSpeed = undefined;
-    }, 500);
+    } catch (error) {
+      this.platform.log.error(
+        `[${this.device.name}] Failed to set fan speed: ${error}`,
+      );
+    }
   }
 
   getFilterChangeIndication(): CharacteristicValue {
@@ -1041,21 +754,17 @@ export class BlueAirAccessory {
   }
 
   getAirQuality(): CharacteristicValue {
-    if (this.device.sensorData.aqi === undefined) {
+    const aqi = this.device.sensorData.aqi;
+    if (aqi === undefined) {
       return this.platform.Characteristic.AirQuality.UNKNOWN;
     }
 
-    if (this.device.sensorData.aqi <= 50) {
-      return this.platform.Characteristic.AirQuality.EXCELLENT;
-    } else if (this.device.sensorData.aqi <= 100) {
-      return this.platform.Characteristic.AirQuality.GOOD;
-    } else if (this.device.sensorData.aqi <= 150) {
-      return this.platform.Characteristic.AirQuality.FAIR;
-    } else if (this.device.sensorData.aqi <= 200) {
-      return this.platform.Characteristic.AirQuality.INFERIOR;
-    } else {
-      return this.platform.Characteristic.AirQuality.POOR;
-    }
+    const C = this.platform.Characteristic.AirQuality;
+    if (aqi <= AQI_THRESHOLDS.EXCELLENT) return C.EXCELLENT;
+    if (aqi <= AQI_THRESHOLDS.GOOD) return C.GOOD;
+    if (aqi <= AQI_THRESHOLDS.FAIR) return C.FAIR;
+    if (aqi <= AQI_THRESHOLDS.INFERIOR) return C.INFERIOR;
+    return C.POOR;
   }
 
   getGermShield(): CharacteristicValue {
@@ -1123,41 +832,31 @@ export class BlueAirAccessory {
 
   async setTargetRelativeHumidity(value: CharacteristicValue) {
     const desired = Math.max(HUMIDITY_MIN, Math.min(HUMIDITY_MAX, value as number));
+    this.humidityDebouncer.call(desired);
+  }
 
-    // Debounce: HomeKit sends rapid updates when dragging slider
-    this.pendingHumidity = desired;
-
-    if (this.humidityDebounceTimer) {
-      clearTimeout(this.humidityDebounceTimer);
-    }
-
-    this.humidityDebounceTimer = setTimeout(async () => {
-      const valueToSet = this.pendingHumidity;
-      if (valueToSet === undefined) return;
-
-      this.platform.log.info(
-        `[${this.device.name}] HomeKit → setTargetHumidity: ${valueToSet}% - enabling auto mode`,
-      );
-      const attr = this.findHumidityTargetAttribute();
-      if (attr) {
-        await this.device.setState(attr, valueToSet);
-        await this.device.setState("automode", true);
-        this.humidityAutoControlEnabled = true;
-        this.pendingHumidity = undefined;
-        return;
-      }
-      // Fallback: store locally if device does not expose a writable target
-      if (!this.loggedNoWritableTargetHumidity) {
-        this.platform.log.info(
-          `[${this.device.name}] Device did not expose a writable target humidity attribute; storing locally.`,
-        );
-        this.loggedNoWritableTargetHumidity = true;
-      }
-      this.configDev.targetHumidity = valueToSet;
+  /** Debounced execution for target humidity changes */
+  private async executeHumidityChange(valueToSet: number): Promise<void> {
+    this.platform.log.info(
+      `[${this.device.name}] HomeKit → setTargetHumidity: ${valueToSet}% - enabling auto mode`,
+    );
+    const attr = this.findHumidityTargetAttribute();
+    if (attr) {
+      await this.device.setState(attr, valueToSet);
       await this.device.setState("automode", true);
       this.humidityAutoControlEnabled = true;
-      this.pendingHumidity = undefined;
-    }, 500);
+      return;
+    }
+    // Fallback: store locally if device does not expose a writable target
+    if (!this.loggedNoWritableTargetHumidity) {
+      this.platform.log.info(
+        `[${this.device.name}] Device did not expose a writable target humidity attribute; storing locally.`,
+      );
+      this.loggedNoWritableTargetHumidity = true;
+    }
+    this.configDev.targetHumidity = valueToSet;
+    await this.device.setState("automode", true);
+    this.humidityAutoControlEnabled = true;
   }
 
   private maybeAutoAdjustFanSpeed() {
@@ -1179,7 +878,7 @@ export class BlueAirAccessory {
     const speed = (this.device.state.fanspeed ?? 0) as number;
 
     // Find current speed index in valid levels
-    const speedIndex = this.FAN_SPEED_LEVELS.findIndex(
+    const speedIndex = FAN_SPEED_LEVELS.findIndex(
       (lvl, i, arr) => speed <= lvl || i === arr.length - 1
     );
 
@@ -1188,13 +887,13 @@ export class BlueAirAccessory {
     // Step up/down one level at a time based on humidity difference
     if (diff > 2) {
       // Need more humidity - increase fan speed one level
-      newSpeedIndex = Math.min(this.FAN_SPEED_LEVELS.length - 1, speedIndex + 1);
+      newSpeedIndex = Math.min(FAN_SPEED_LEVELS.length - 1, speedIndex + 1);
     } else if (diff < -4) {
       // Too humid - decrease fan speed one level
       newSpeedIndex = Math.max(0, speedIndex - 1);
     }
 
-    const newSpeed = this.FAN_SPEED_LEVELS[newSpeedIndex];
+    const newSpeed = FAN_SPEED_LEVELS[newSpeedIndex];
     if (newSpeed !== speed) {
       this.platform.log.debug(
         `[${this.device.name}] Auto-adjust fan: humidity ${current}% target ${target}% -> speed ${speed} -> ${newSpeed}`,

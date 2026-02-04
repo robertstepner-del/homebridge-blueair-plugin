@@ -122,3 +122,51 @@ export const defaultConfig: Config = {
 
 export const PLATFORM_NAME = "blueair-purifier";
 export const PLUGIN_NAME = "homebridge-blueair-purifier";
+
+/**
+ * Generic debounce utility for HomeKit slider/control interactions.
+ * Stores pending value and only executes action after delay with no new calls.
+ */
+export class Debouncer<T> {
+  private timer?: ReturnType<typeof setTimeout>;
+  private pendingValue?: T;
+
+  constructor(
+    private readonly delay: number,
+    private readonly action: (value: T) => Promise<void>,
+  ) {}
+
+  /**
+   * Schedule the action with the given value.
+   * Cancels any pending execution and reschedules.
+   */
+  call(value: T): void {
+    this.pendingValue = value;
+
+    if (this.timer) {
+      clearTimeout(this.timer);
+    }
+
+    this.timer = setTimeout(async () => {
+      const valueToUse = this.pendingValue;
+      if (valueToUse !== undefined) {
+        this.pendingValue = undefined;
+        await this.action(valueToUse);
+      }
+    }, this.delay);
+  }
+
+  /** Get the currently pending value (if any) */
+  get pending(): T | undefined {
+    return this.pendingValue;
+  }
+
+  /** Cancel any pending execution */
+  cancel(): void {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = undefined;
+    }
+    this.pendingValue = undefined;
+  }
+}
