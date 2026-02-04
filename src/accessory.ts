@@ -748,6 +748,8 @@ export class BlueAirAccessory {
           await this.device.setState("automode", false);
         }
         await this.device.setState("nightmode", true);
+        // Set target humidity to current humidity when leaving auto mode
+        await this.syncTargetHumidityToCurrent();
       } else {
         // 50%, 75%, 100% = Manual fan speeds
         this.platform.log.info(
@@ -763,6 +765,8 @@ export class BlueAirAccessory {
           await this.device.setState("automode", false);
         }
         await this.device.setState("fanspeed", speed);
+        // Set target humidity to current humidity when leaving auto mode
+        await this.syncTargetHumidityToCurrent();
       }
     } catch (error) {
       this.platform.log.error(
@@ -858,6 +862,34 @@ export class BlueAirAccessory {
       Math.min(100, this.device.sensorData.humidity || 0),
     );
     return humidity;
+  }
+
+  /**
+   * Sync target humidity to current humidity when switching to manual mode.
+   * This provides a sensible starting point for manual control.
+   */
+  private async syncTargetHumidityToCurrent(): Promise<void> {
+    if (this.deviceType !== "humidifier") return;
+    if (!this.capabilities.hasHumidityTarget) return;
+
+    const currentHumidity = this.device.sensorData.humidity;
+    if (currentHumidity === undefined) return;
+
+    const clampedHumidity = Math.max(HUMIDITY_MIN, Math.min(HUMIDITY_MAX, Math.round(currentHumidity)));
+    const attr = this.findHumidityTargetAttribute();
+    
+    if (attr) {
+      this.platform.log.info(
+        `[${this.device.name}] Syncing target humidity to current: ${clampedHumidity}%`,
+      );
+      await this.device.setState(attr, clampedHumidity);
+      
+      // Update HomeKit to reflect the new target
+      this.service.updateCharacteristic(
+        this.platform.Characteristic.RelativeHumidityHumidifierThreshold,
+        clampedHumidity,
+      );
+    }
   }
 
   getTargetRelativeHumidity(): CharacteristicValue {
