@@ -40,15 +40,33 @@ export const HUMIDITY_MAX = 80;
 // Fan speed levels: 0 (off/night), 11 (low), 37 (medium), 64 (high)
 export const FAN_SPEED_LEVELS = [0, 11, 37, 64] as const;
 
-// Map HomeKit percentage to nearest device speed level
-export function mapToDeviceSpeed(hkSpeed: number): number {
-  if (hkSpeed <= 10) return 0;  // Night mode / off
-  if (hkSpeed <= 36) return 11; // Low
-  if (hkSpeed <= 63) return 37; // Medium
-  return 64;                     // High
+// HomeKit fan speed mapping - use 4 discrete positions (0, 33, 66, 100)
+// This prevents slider jumping by making HomeKit values match device capability
+export const FAN_SPEED_HOMEKIT_STEP = 33;
+export const FAN_SPEED_HOMEKIT_VALUES = [0, 33, 66, 100] as const;
+
+// Map HomeKit percentage (0, 33, 66, 100) to device speed (0, 11, 37, 64)
+export function fanSpeedHomeKitToDevice(hkSpeed: number): number {
+  if (hkSpeed <= 16) return 0;   // 0-16% → off/night
+  if (hkSpeed <= 49) return 11;  // 17-49% → low
+  if (hkSpeed <= 83) return 37;  // 50-83% → medium
+  return 64;                      // 84-100% → high
 }
 
-// Night light levels: device uses 0-3, HomeKit uses 0-100%
+// Map device speed (0, 11, 37, 64) to HomeKit percentage (0, 33, 66, 100)
+export function fanSpeedDeviceToHomeKit(deviceSpeed: number): number {
+  if (deviceSpeed <= 5) return 0;    // off/night → 0%
+  if (deviceSpeed <= 24) return 33;  // low → 33%
+  if (deviceSpeed <= 50) return 66;  // medium → 66%
+  return 100;                         // high → 100%
+}
+
+// Map HomeKit percentage to nearest device speed level (legacy - for direct API calls)
+export function mapToDeviceSpeed(hkSpeed: number): number {
+  return fanSpeedHomeKitToDevice(hkSpeed);
+}
+
+// Night light levels: device uses 0-3, HomeKit uses discrete 0/33/66/100%
 export const NL_LEVELS = {
   OFF: 0,
   WARM: 1,
@@ -56,7 +74,10 @@ export const NL_LEVELS = {
   BRIGHT: 3,
 } as const;
 
-// Convert device night light value (0-3) to HomeKit percentage (0-100)
+// HomeKit night light step - 3 brightness levels + off
+export const NL_HOMEKIT_STEP = 33;
+
+// Convert device night light value (0-3) to HomeKit percentage (0, 33, 66, 100)
 export function nlDeviceToHomeKit(deviceValue: number): number {
   switch (deviceValue) {
     case 0: return 0;
@@ -67,11 +88,11 @@ export function nlDeviceToHomeKit(deviceValue: number): number {
   }
 }
 
-// Convert HomeKit percentage (0-100) to device night light value (0-3)
+// Convert HomeKit percentage to device night light value (0-3)
 export function nlHomeKitToDevice(hkValue: number): number {
-  if (hkValue === 0) return NL_LEVELS.OFF;
-  if (hkValue <= 33) return NL_LEVELS.WARM;
-  if (hkValue <= 66) return NL_LEVELS.NORMAL;
+  if (hkValue <= 16) return NL_LEVELS.OFF;
+  if (hkValue <= 49) return NL_LEVELS.WARM;
+  if (hkValue <= 83) return NL_LEVELS.NORMAL;
   return NL_LEVELS.BRIGHT;
 }
 

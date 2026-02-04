@@ -8,10 +8,13 @@ import {
   HUMIDITY_MIN,
   HUMIDITY_MAX,
   FAN_SPEED_LEVELS,
+  FAN_SPEED_HOMEKIT_STEP,
   NL_LEVELS,
+  NL_HOMEKIT_STEP,
   DEBOUNCE_DELAY_MS,
   AQI_THRESHOLDS,
-  mapToDeviceSpeed,
+  fanSpeedHomeKitToDevice,
+  fanSpeedDeviceToHomeKit,
   nlDeviceToHomeKit,
   nlHomeKitToDevice,
   nlDeviceToName,
@@ -144,10 +147,10 @@ export class BlueAirAccessory {
       .onGet(this.getLockPhysicalControls.bind(this))
       .onSet(this.setLockPhysicalControls.bind(this));
 
-    // Rotation speed (fan speed) - 0-100% scale
+    // Rotation speed (fan speed) - discrete steps matching device capability
     this.service
       .getCharacteristic(C.RotationSpeed)
-      .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
+      .setProps({ minValue: 0, maxValue: 100, minStep: FAN_SPEED_HOMEKIT_STEP })
       .onGet(this.getRotationSpeed.bind(this))
       .onSet(this.setRotationSpeed.bind(this));
 
@@ -254,7 +257,7 @@ export class BlueAirAccessory {
 
     this.fanService
       .getCharacteristic(C.RotationSpeed)
-      .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
+      .setProps({ minValue: 0, maxValue: 100, minStep: FAN_SPEED_HOMEKIT_STEP })
       .onGet(this.getRotationSpeed.bind(this))
       .onSet(this.setRotationSpeed.bind(this));
 
@@ -336,7 +339,10 @@ export class BlueAirAccessory {
       (svc) => {
         svc.setCharacteristic(C.ConfiguredName, `${this.device.name} Night Light`);
         svc.getCharacteristic(C.On).onGet(this.getNightLightOn.bind(this)).onSet(this.setNightLightOn.bind(this));
-        svc.getCharacteristic(C.Brightness).onGet(this.getNightLightBrightness.bind(this)).onSet(this.setNightLightBrightness.bind(this));
+        svc.getCharacteristic(C.Brightness)
+          .setProps({ minValue: 0, maxValue: 100, minStep: NL_HOMEKIT_STEP })
+          .onGet(this.getNightLightBrightness.bind(this))
+          .onSet(this.setNightLightBrightness.bind(this));
       },
     );
 
@@ -680,17 +686,17 @@ export class BlueAirAccessory {
     await this.device.setState("childlock", isLocked);
   }
 
-  // Fan speed uses imported FAN_SPEED_LEVELS and mapToDeviceSpeed from constants.ts
+  // Fan speed uses discrete HomeKit values (0, 33, 66, 100) to prevent slider jumping
 
-  // Map device speed to HomeKit percentage (return actual device value for display)
   getRotationSpeed(): CharacteristicValue {
     if (this.device.state.standby !== false) return 0;
-    return this.device.state.fanspeed ?? 0;
+    // Map device speed to HomeKit percentage for consistent display
+    return fanSpeedDeviceToHomeKit(this.device.state.fanspeed ?? 0);
   }
 
   async setRotationSpeed(value: CharacteristicValue) {
-    const hkSpeed = Math.max(0, Math.min(100, value as number));
-    const deviceSpeed = mapToDeviceSpeed(hkSpeed);
+    const hkSpeed = value as number;
+    const deviceSpeed = fanSpeedHomeKitToDevice(hkSpeed);
     this.fanSpeedDebouncer.call({ deviceSpeed, hkSpeed });
   }
 
