@@ -42,7 +42,7 @@ export class BlueAirAccessory {
   private lastBrightness: number;
   
   // Debouncers for HomeKit slider interactions
-  private fanSpeedDebouncer: Debouncer<{ deviceSpeed: number; hkSpeed: number }>;
+  private fanSpeedDebouncer: Debouncer<{ speed: number; isNightMode: boolean; isStandby: boolean; hkSpeed: number }>;
   private nlBrightnessDebouncer: Debouncer<number>;
   private humidityDebouncer: Debouncer<number>;
   
@@ -189,6 +189,13 @@ export class BlueAirAccessory {
       .getCharacteristic(this.platform.Characteristic.TargetAirPurifierState)
       .onGet(this.getTargetAirPurifierState.bind(this))
       .onSet(this.setTargetAirPurifierState.bind(this));
+
+    // Add humidity to main control screen if available
+    if (this.capabilities.hasHumidity) {
+      this.service
+        .getCharacteristic(this.platform.Characteristic.CurrentRelativeHumidity)
+        .onGet(this.getCurrentRelativeHumidity.bind(this));
+    }
   }
 
   private setupHumidifierService() {
@@ -268,7 +275,11 @@ export class BlueAirAccessory {
   /**
    * Helper to set up or remove an optional service based on config.
    * Returns the service if enabled, undefined otherwise.
-   * All optional services are linked to the primary service for grouping in Home app.
+   * 
+   * Note: By default, optional services are NOT linked to the primary service.
+   * This means they appear as separate tiles in the Home app, which provides
+   * a cleaner UX than stacked controls in the main control popup.
+   * The primary service (purifier/humidifier) handles the main device controls.
    */
   private setupOptionalService(
     serviceConstructor: WithUUID<typeof Service>,
@@ -276,6 +287,7 @@ export class BlueAirAccessory {
     displayName: string,
     enabled: boolean,
     configure: (service: Service) => void,
+    linkToMain = false, // Set to true to link service to primary (shows in control popup)
   ): Service | undefined {
     const existingService = this.accessory.getServiceById(serviceConstructor, subtype);
 
@@ -293,11 +305,18 @@ export class BlueAirAccessory {
       );
       configure(service);
       this.optionalServices.set(subtype, service);
-      // Link to primary service for grouping in Home app
-      this.service.addLinkedService(service);
+      // Only link if explicitly requested
+      if (linkToMain) {
+        this.service.addLinkedService(service);
+      }
       return service;
     } else if (existingService) {
-      this.service.removeLinkedService(existingService);
+      // Remove any existing link before removing service
+      try {
+        this.service.removeLinkedService(existingService);
+      } catch {
+        // Ignore if not linked
+      }
       this.accessory.removeService(existingService);
       this.optionalServices.delete(subtype);
     }
@@ -686,48 +705,64 @@ export class BlueAirAccessory {
     await this.device.setState("childlock", isLocked);
   }
 
-  // Fan speed uses discrete HomeKit values (0, 33, 66, 100) to prevent slider jumping
+  // Fan speed uses discrete HomeKit values (0, 25, 50, 75, 100) to prevent slider jumping
+  // 0% = Off, 25% = Sleep/Night, 50% = Low, 75% = Medium, 100% = High
 
   getRotationSpeed(): CharacteristicValue {
-    if (this.device.state.standby !== false) return 0;
-    // Map device speed to HomeKit percentage for consistent display
-    return fanSpeedDeviceToHomeKit(this.device.state.fanspeed ?? 0);
+    const isStandby = this.device.state.standby !== false;
+    const isNightMode = this.device.state.nightmode === true;
+    const deviceSpeed = this.device.state.fanspeed ?? 0;
+    return fanSpeedDeviceToHomeKit(deviceSpeed, isNightMode, isStandby);
   }
 
   async setRotationSpeed(value: CharacteristicValue) {
     const hkSpeed = value as number;
-    const deviceSpeed = fanSpeedHomeKitToDevice(hkSpeed);
-    this.fanSpeedDebouncer.call({ deviceSpeed, hkSpeed });
+    const fanState = fanSpeedHomeKitToDevice(hkSpeed);
+    this.fanSpeedDebouncer.call({ ...fanState, hkSpeed });
   }
 
   /** Debounced execution for fan speed changes */
-  private async executeFanSpeedChange(params: { deviceSpeed: number; hkSpeed: number }): Promise<void> {
-    const { deviceSpeed, hkSpeed } = params;
-    const enableNightMode = deviceSpeed <= 10 && this.capabilities.hasNightMode;
+  private async executeFanSpeedChange(params: { 
+    speed: number; 
+    isNightMode: boolean; 
+    isStandby: boolean; 
+    hkSpeed: number;
+  }): Promise<void> {
+    const { speed, isNightMode, isStandby, hkSpeed } = params;
 
     try {
-      if (enableNightMode) {
+      if (isStandby) {
+        // 0% = Turn device off
         this.platform.log.info(
-          `[${this.device.name}] HomeKit → setFanSpeed: ${hkSpeed}% → enabling Night Mode`,
+          `[${this.device.name}] HomeKit → setFanSpeed: ${hkSpeed}% → Standby`,
+        );
+        await this.device.setState("standby", true);
+      } else if (isNightMode && this.capabilities.hasNightMode) {
+        // 25% = Sleep/Night mode
+        this.platform.log.info(
+          `[${this.device.name}] HomeKit → setFanSpeed: ${hkSpeed}% → Night Mode`,
         );
         this.humidityAutoControlEnabled = false;
+        await this.device.setState("standby", false);
         if (this.capabilities.hasAutoMode) {
           await this.device.setState("automode", false);
         }
         await this.device.setState("nightmode", true);
       } else {
+        // 50%, 75%, 100% = Manual fan speeds
         this.platform.log.info(
-          `[${this.device.name}] HomeKit → setFanSpeed: ${hkSpeed}% → device speed ${deviceSpeed}`,
+          `[${this.device.name}] HomeKit → setFanSpeed: ${hkSpeed}% → speed ${speed}`,
         );
         this.humidityAutoControlEnabled = false;
         this.lastManualOverride = Date.now();
+        await this.device.setState("standby", false);
         if (this.capabilities.hasNightMode) {
           await this.device.setState("nightmode", false);
         }
         if (this.capabilities.hasAutoMode) {
           await this.device.setState("automode", false);
         }
-        await this.device.setState("fanspeed", deviceSpeed);
+        await this.device.setState("fanspeed", speed);
       }
     } catch (error) {
       this.platform.log.error(

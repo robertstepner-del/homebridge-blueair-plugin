@@ -37,33 +37,50 @@ export const AQI: Record<string, AQILevels> = {
 export const HUMIDITY_MIN = 30;
 export const HUMIDITY_MAX = 80;
 
-// Fan speed levels: 0 (off/night), 11 (low), 37 (medium), 64 (high)
+// Fan speed levels: 0 (sleep/night), 11 (low), 37 (medium), 64 (high)
 export const FAN_SPEED_LEVELS = [0, 11, 37, 64] as const;
 
-// HomeKit fan speed mapping - use 4 discrete positions (0, 33, 66, 100)
-// This prevents slider jumping by making HomeKit values match device capability
-export const FAN_SPEED_HOMEKIT_STEP = 33;
-export const FAN_SPEED_HOMEKIT_VALUES = [0, 33, 66, 100] as const;
+// HomeKit fan speed mapping - use 5 discrete positions (0, 25, 50, 75, 100)
+// 0% = Off/Standby, 25% = Sleep/Night, 50% = Low, 75% = Medium, 100% = High
+export const FAN_SPEED_HOMEKIT_STEP = 25;
+export const FAN_SPEED_HOMEKIT_VALUES = [0, 25, 50, 75, 100] as const;
 
-// Map HomeKit percentage (0, 33, 66, 100) to device speed (0, 11, 37, 64)
-export function fanSpeedHomeKitToDevice(hkSpeed: number): number {
-  if (hkSpeed <= 16) return 0;   // 0-16% → off/night
-  if (hkSpeed <= 49) return 11;  // 17-49% → low
-  if (hkSpeed <= 83) return 37;  // 50-83% → medium
-  return 64;                      // 84-100% → high
+// Map HomeKit percentage to device speed
+// Returns { speed: number, isNightMode: boolean, isStandby: boolean }
+export function fanSpeedHomeKitToDevice(hkSpeed: number): { speed: number; isNightMode: boolean; isStandby: boolean } {
+  if (hkSpeed <= 12) {
+    // 0% = Standby (device off)
+    return { speed: 0, isNightMode: false, isStandby: true };
+  }
+  if (hkSpeed <= 37) {
+    // 25% = Sleep/Night mode (device on, night mode enabled)
+    return { speed: 0, isNightMode: true, isStandby: false };
+  }
+  if (hkSpeed <= 62) {
+    // 50% = Low
+    return { speed: 11, isNightMode: false, isStandby: false };
+  }
+  if (hkSpeed <= 87) {
+    // 75% = Medium
+    return { speed: 37, isNightMode: false, isStandby: false };
+  }
+  // 100% = High
+  return { speed: 64, isNightMode: false, isStandby: false };
 }
 
-// Map device speed (0, 11, 37, 64) to HomeKit percentage (0, 33, 66, 100)
-export function fanSpeedDeviceToHomeKit(deviceSpeed: number): number {
-  if (deviceSpeed <= 5) return 0;    // off/night → 0%
-  if (deviceSpeed <= 24) return 33;  // low → 33%
-  if (deviceSpeed <= 50) return 66;  // medium → 66%
-  return 100;                         // high → 100%
+// Map device state to HomeKit percentage
+export function fanSpeedDeviceToHomeKit(deviceSpeed: number, isNightMode: boolean, isStandby: boolean): number {
+  if (isStandby) return 0;           // Off → 0%
+  if (isNightMode) return 25;        // Night mode → 25%
+  if (deviceSpeed <= 5) return 25;   // Speed 0 without night mode → treat as sleep
+  if (deviceSpeed <= 24) return 50;  // Low → 50%
+  if (deviceSpeed <= 50) return 75;  // Medium → 75%
+  return 100;                         // High → 100%
 }
 
-// Map HomeKit percentage to nearest device speed level (legacy - for direct API calls)
+// Legacy function for backward compatibility
 export function mapToDeviceSpeed(hkSpeed: number): number {
-  return fanSpeedHomeKitToDevice(hkSpeed);
+  return fanSpeedHomeKitToDevice(hkSpeed).speed;
 }
 
 // Night light levels: device uses 0-3, HomeKit uses discrete 0/33/66/100%
