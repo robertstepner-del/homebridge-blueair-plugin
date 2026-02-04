@@ -468,10 +468,10 @@ export class BlueAirAccessory {
           this.updateOptionalCharacteristic("Temperature", C.CurrentTemperature, this.getCurrentTemperature());
           break;
         case "humidity":
-          if (this.deviceType === "humidifier") {
-            this.service.updateCharacteristic(C.CurrentRelativeHumidity, this.getCurrentRelativeHumidity());
-            this.updateOptionalCharacteristic("Humidity", C.CurrentRelativeHumidity, this.getCurrentRelativeHumidity());
-          }
+          // Update humidity on main service
+          this.service.updateCharacteristic(C.CurrentRelativeHumidity, this.getCurrentRelativeHumidity());
+          // Also update optional humidity sensor tile
+          this.updateOptionalCharacteristic("Humidity", C.CurrentRelativeHumidity, this.getCurrentRelativeHumidity());
           break;
         case "brightness":
           this.updateOptionalCharacteristic("DisplayBrightness", C.On, this.getDisplayOn());
@@ -869,11 +869,18 @@ export class BlueAirAccessory {
    * This provides a sensible starting point for manual control.
    */
   private async syncTargetHumidityToCurrent(): Promise<void> {
-    if (this.deviceType !== "humidifier") return;
-    if (!this.capabilities.hasHumidityTarget) return;
+    // Only applies to humidifiers
+    if (this.deviceType !== "humidifier") {
+      return;
+    }
 
     const currentHumidity = this.device.sensorData.humidity;
-    if (currentHumidity === undefined) return;
+    if (currentHumidity === undefined) {
+      this.platform.log.debug(
+        `[${this.device.name}] Cannot sync humidity: no current humidity data`,
+      );
+      return;
+    }
 
     const clampedHumidity = Math.max(HUMIDITY_MIN, Math.min(HUMIDITY_MAX, Math.round(currentHumidity)));
     const attr = this.findHumidityTargetAttribute();
@@ -884,7 +891,17 @@ export class BlueAirAccessory {
       );
       await this.device.setState(attr, clampedHumidity);
       
-      // Update HomeKit to reflect the new target
+      // Update HomeKit to reflect the new target immediately
+      this.service.updateCharacteristic(
+        this.platform.Characteristic.RelativeHumidityHumidifierThreshold,
+        clampedHumidity,
+      );
+    } else {
+      // No device attribute, update local config and HomeKit
+      this.platform.log.debug(
+        `[${this.device.name}] No humidity target attribute, updating locally to ${clampedHumidity}%`,
+      );
+      this.configDev.targetHumidity = clampedHumidity;
       this.service.updateCharacteristic(
         this.platform.Characteristic.RelativeHumidityHumidifierThreshold,
         clampedHumidity,
