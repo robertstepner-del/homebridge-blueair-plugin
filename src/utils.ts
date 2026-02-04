@@ -120,6 +120,24 @@ export const defaultConfig: Config = {
   devices: [],
 };
 
+export const defaultDeviceConfig: DeviceConfig = {
+  id: "",
+  name: "",
+  model: "",
+  serialNumber: "",
+  filterChangeLevel: 10,
+  showFanTile: true,
+  defaultTargetHumidity: 60,
+  led: true,
+  nightLight: false,
+  airQualitySensor: true,
+  co2Sensor: true,
+  temperatureSensor: true,
+  humiditySensor: true,
+  germShield: false,
+  nightMode: false,
+};
+
 export const PLATFORM_NAME = "blueair-purifier";
 export const PLUGIN_NAME = "homebridge-blueair-plugin";
 

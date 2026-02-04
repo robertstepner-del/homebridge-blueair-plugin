@@ -4,84 +4,96 @@
 
 # homebridge-blueair-plugin
 
+Homebridge plugin for BlueAir air purifiers and humidifiers with cloud connectivity.
+
 ## Installation
 
 **Option 1: Install via Homebridge Config UI X:**
 
-Search for "Blueair Plugin" in in [homebridge-config-ui-x](https://github.com/oznu/homebridge-config-ui-x) and install `homebridge-blueair-plugin`.
+Search for "BlueAir" in [homebridge-config-ui-x](https://github.com/oznu/homebridge-config-ui-x) and install `homebridge-blueair-plugin`.
 
 **Option 2: Manually Install:**
 
-```text
+```bash
 sudo npm install -g homebridge-blueair-plugin
 ```
 
-### Features
+## Device Setup
 
-This plugin only supports WiFi connected BlueAir purifiers utilizing cloud connectivity (via AWS) for device communication. Below is a list of known tested products.
+1. Open **Homebridge Config UI X**
+2. Go to **Plugins** → Find **Homebridge BlueAir Plugin**
+3. Click **Settings** (gear icon)
+4. Click **"Discover devices"**
+5. Enter your BlueAir account credentials and select your region
+6. Click **"Discover Devices on account"**
+7. Click **Add** next to each device you want to control
+8. Save the configuration and restart Homebridge
 
-- **Simple Login Mechanism** - all you need is your username and password to get started.
-- **Semi-automatic detection and configuration of multiple BlueAir devices.**
-- **Fast response times** - the plugin uses the BlueAir API to communicate with the devices.
-- **Intelligent device detection** - automatically detects device type and capabilities from API responses.
-- **Expandable sensor support** - supports PM 1/2.5/10, Temperature, Humidity, VOC, HCHO, CO₂, NO₂, and Ozone sensors (when available on device).
+## Supported Devices
 
->[!NOTE]
->**Air quality readings** - the plugin may not always report the correct air quality readings (like PM 2.5) due to the BlueAir API limitations. The solution for this issue is in progress.
->
->**Advanced sensors** - CO₂, NO₂, and Ozone sensors are now mapped and will be reported when available from your device, pending Homebridge characteristic support.
+- **Air Purifiers** - BlueAir WiFi-connected air purifiers (e.g., Blue 3210i, HealthProtect series)
+- **Humidifiers** - BlueAir humidifier devices
 
-## Plugin Configuration
+> [!NOTE]
+> This plugin only supports devices with cloud connectivity via AWS. Classic/legacy BlueAir devices are not supported.
 
-### Feature Toggles
-* Show LED service as a lightbulb
-* Show Air Quality Sensor service
-* Show Temperature Sensor service
-* Show Germ Shield switch service
-* Show Night Mode switch service
+## Features
 
-### Customizable Options
-* Adjustable Filter Change Level
-* Device Name
-* Verbose Logging
-* BlueAir Server Region Selection
+### Air Purifier Controls
+- Power on/off
+- Fan speed control with debounced slider
+- Auto mode toggle
+- Child lock (lock physical controls)
+- LED brightness control (as lightbulb service)
+- Germ Shield mode (when supported)
+- Night mode for quiet operation
 
-### Sensor Support
+### Humidifier Controls
+- Power on/off
+- Fan speed control
+- Target humidity (30-80%)
+- Water level monitoring
+- Night light brightness control
 
+### Sensors
 The plugin supports the following sensors when available on your device:
 
-| Sensor Type | Code | Description |
-|-------------|------|-------------|
-| PM 1.0 | `pm1` | Particulate Matter 1 micron |
-| PM 2.5 | `pm2_5` | Particulate Matter 2.5 microns |
-| PM 10 | `pm10` | Particulate Matter 10 microns |
-| Temperature | `t` | Ambient temperature |
-| Humidity | `h` | Relative humidity |
-| VOC | `tVOC` | Volatile Organic Compounds |
-| Formaldehyde | `hcho` | HCHO concentration |
-| Carbon Dioxide | `co2` | CO₂ levels |
-| Nitrogen Dioxide | `no2` | NO₂ levels |
-| Ozone | `o3` | Ozone concentration |
-| Nitrogen Oxides | `nox` | NOx density |
+| Sensor | Description |
+|--------|-------------|
+| PM 1.0 / PM 2.5 / PM 10 | Particulate matter sensors |
+| Temperature | Ambient temperature |
+| Humidity | Relative humidity |
+| VOC | Volatile organic compounds |
+| Formaldehyde (HCHO) | Formaldehyde concentration |
+| CO₂ | Carbon dioxide levels |
+| Air Quality Index | Calculated AQI from PM2.5 |
 
-### Device Detection
+### Filter Maintenance
+- Filter life level monitoring
+- Filter change indicator with configurable threshold
+
+## Configuration Options
+
+| Option | Description |
+|--------|-------------|
+| **Region** | BlueAir server region (Default/EU, Australia, China, Russia, USA) |
+| **Polling Interval** | API polling interval in seconds (default: 120) |
+| **Verbose Logging** | Enable detailed logging for troubleshooting |
+| **LED Service** | Show LED brightness as a lightbulb tile |
+| **Air Quality Sensor** | Show air quality sensor service |
+| **Temperature Sensor** | Show temperature sensor service |
+| **Germ Shield** | Show germ shield switch (air purifiers) |
+| **Night Mode** | Show night mode switch |
+| **Filter Change Level** | Percentage threshold for filter change alert |
+
+## Automatic Device Detection
 
 The plugin automatically detects device capabilities based on:
-1. **API Device Type** - When the BlueAir API provides device type information
+1. **API Device Type** - Device type information from BlueAir API
 2. **Model Name** - Pattern matching against known device models
-3. **Fallback Defaults** - Safe defaults for unknown devices
+3. **State Keys** - Available state keys reported by the device
 
 This allows the plugin to intelligently enable/disable features based on what your specific device supports.
-
-## Extending the Plugin
-
-### Adding Support for New Sensors
-
-New sensor types can be added to the plugin by:
-
-1. Updating the sensor map in `src/api/BlueAirAwsApi.ts`
-2. Adding the sensor to the `BlueAirDeviceSensorData` type
-3. Creating appropriate Homebridge characteristics (if new sensor type)
 
 ## Credits
 
