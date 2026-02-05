@@ -1,0 +1,177 @@
+{
+  "pluginAlias": "blueair-purifier",
+  "pluginType": "platform",
+  "customUi": true,
+  "singular": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "description": "Name of the BlueAir Purifier platform in Homebridge.",
+        "type": "string"
+      },
+      "username": {
+        "title": "Username",
+        "description": "Username for BlueAir account. This should be filled in automatically in the discovery process.",
+        "type": "string"
+      },
+      "password": {
+        "title": "Password",
+        "description": "Password for BlueAir account. This should be filled in automatically in the discovery process.",
+        "type": "string"
+      },
+      "region": {
+        "title": "Region",
+        "description": "Region for BlueAir account. This should be filled in automatically in the discovery process.",
+        "type": "string",
+        "enum": ["Default (all other regions)", "Australia", "China", "Russia", "USA"],
+        "default": "Default (all other regions)",
+        "required": true
+      },
+      "accountUuid": {
+        "title": "Account UUID",
+        "description": "Account UUID for BlueAir account. This should be filled in automatically in the discovery process.",
+        "type": "string"
+      },
+      "verboseLogging": {
+        "title": "Verbose Logging",
+        "description": "Enable to receive detailed log messages. Useful for troubleshooting.",
+        "type": "boolean"
+      },
+      "uiDebug": {
+        "title": "UI Debug",
+        "description": "Enable to show debug information in the Homebridge UI.",
+        "type": "boolean"
+      },
+      "pollingInterval": {
+        "title": "Polling Interval (seconds)",
+        "description": "Interval in seconds to poll the BlueAir API for updates. Recommended: 120 seconds or higher to avoid rate limiting. Lower values may cause 'too many calls' errors.",
+        "type": "number",
+        "minimum": 30,
+        "default": 120
+      },
+      "devices": {
+        "title": "Devices",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "title": "ID",
+              "type": "string",
+              "required": true
+            },
+            "name": {
+              "title": "Name",
+              "type": "string",
+              "required": true
+            },
+            "model": {
+              "title": "Model",
+              "type": "string",
+              "description": "Device model name. Used to auto-detect if the device is a humidifier or air purifier (e.g., 'Humidifier', 'Air Purifier')."
+            },
+            "serialNumber": {
+              "title": "Serial Number",
+              "type": "string"
+            },
+            "showFanTile": {
+              "title": "Show Fan Tile",
+              "description": "Adds a separate Fan control tile for better visibility in Home app (Humidifiers).",
+              "type": "boolean",
+              "default": true
+            },
+            "defaultTargetHumidity": {
+              "title": "Default Target Humidity (%)",
+              "description": "Used when the device does not expose a writable target humidity attribute. Range 30–80%.",
+              "type": "number",
+              "minimum": 30,
+              "maximum": 80,
+              "default": 60
+            },
+            "targetHumidityAttribute": {
+              "title": "Target Humidity Attribute (override)",
+              "description": "If your device supports a writable target humidity field but auto-detection fails, set the exact state key name here (e.g., 'targethumidity', 'humidity_target').",
+              "type": "string"
+            },
+            "filterChangeLevel": {
+              "title": "Filter Change Level",
+              "description": "Percentage of filter life remaining to trigger a filter change alert.",
+              "type": "number"
+            },
+            "led": {
+              "title": "LED",
+              "description": "Toggles if the LED switch service is created with the accessory.",
+              "type": "boolean"
+            },
+            "airQualitySensor": {
+              "title": "Air Quality Sensor",
+              "description": "Toggles if the air quality sensor service is created with the accessory. (Air Purifiers only)",
+              "type": "boolean"
+            },
+            "humiditySensor": {
+              "title": "Humidity Sensor",
+              "description": "Toggles if the humidity sensor service is created with the accessory. (Humidifiers only)",
+              "type": "boolean"
+            },
+            "co2Sensor": {
+              "title": "CO2 Sensor",
+              "description": "Toggles if the CO2 sensor service is created with the accessory. (Not yet supported)",
+              "type": "boolean"
+            },
+            "temperatureSensor": {
+              "title": "Temperature Sensor",
+              "description": "Toggles if the temperature sensor service is created with the accessory.",
+              "type": "boolean"
+            },
+            "germShield": {
+              "title": "Germ Shield",
+              "description": "Toggles if the germ shield switch service is created with the accessory. (Air Purifiers only)",
+              "type": "boolean"
+            },
+            "nightMode": {
+              "title": "Night Mode",
+              "description": "Toggles if the night mode switch service is created with the accessory.",
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  },
+  "layout": [
+    {
+      "items": [
+        {
+          "ref": "common",
+          "type": "fieldset",
+          "expandable": true,
+          "expanded": true,
+          "title": "Common Settings",
+          "items": ["name", "username", "password", "region", "accountUuid", "verboseLogging", "uiDebug", "pollingInterval"]
+        },
+        {
+          "key": "devices",
+          "type": "tabarray",
+          "title": "{{ value.name || 'new device' }}",
+          "items": [
+            "devices[].id",
+            "devices[].name",
+            "devices[].model",
+            "devices[].serialNumber",
+            "devices[].showFanTile",
+            "devices[].defaultTargetHumidity",
+            "devices[].targetHumidityAttribute",
+            "devices[].filterChangeLevel",
+            "devices[].led",
+            "devices[].airQualitySensor",
+            "devices[].temperatureSensor",
+            "devices[].germShield",
+            "devices[].nightMode"
+          ]
+        }
+      ]
+    }
+  ]
+}
