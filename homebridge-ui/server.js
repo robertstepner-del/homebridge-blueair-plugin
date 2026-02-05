@@ -11,8 +11,16 @@ var _ = require('lodash');
 class Logger {
   _debug;
   _Reset = '\x1b[0m';
+  _Bright = '\x1b[1m';
+  _Dim = '\x1b[2m';
+
+  _FgBlack = '\x1b[30m';
   _FgRed = '\x1b[31m';
+  _FgGreen = '\x1b[32m';
   _FgYellow = '\x1b[33m';
+  _FgBlue = '\x1b[34m';
+  _FgMagenta = '\x1b[35m';
+  _FgCyan = '\x1b[36m';
   _FgWhite = '\x1b[37m';
   _FgGray = '\x1b[90m';
 
@@ -54,7 +62,7 @@ class UiServer extends HomebridgePluginUiServer {
   constructor() {
     super();
     
-    // Initialize logger - don't try to read config here as it may not exist
+    // Initialize logger
     this.logger = new Logger(false);
     this.logger.info('BlueAir Custom UI server started.');
 
@@ -110,7 +118,8 @@ class UiServer extends HomebridgePluginUiServer {
         if (!accountUuid || !uuids || !uuids.length) {
           throw new Error('Missing accountUuid or device uuids');
         }
-        return await this.api.getDeviceStatus(accountUuid, uuids);
+        const states = await this.api.getDeviceStatus(accountUuid, uuids);
+        return states || [];
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         this.logger.error(`Failed to get device states: ${msg}`);

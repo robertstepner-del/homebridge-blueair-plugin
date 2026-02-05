@@ -1,14 +1,15 @@
 {
-  "pluginAlias": "blueair-purifier",
+  "pluginAlias": "blueair-plugin",
   "pluginType": "platform",
   "customUi": true,
   "singular": true,
+  "headerDisplay": "Use the **Discover Devices** button above to sign in to your BlueAir account and automatically configure your devices. Do not manually fill in these fields.",
   "schema": {
     "type": "object",
     "properties": {
       "name": {
         "title": "Name",
-        "description": "Name of the BlueAir Purifier platform in Homebridge.",
+        "description": "Name of the BlueAir platform in Homebridge.",
         "type": "string"
       },
       "username": {

@@ -147,7 +147,7 @@ export const defaultDeviceConfig: DeviceConfig = {
   nightMode: false,
 };
 
-export const PLATFORM_NAME = "blueair-purifier";
+export const PLATFORM_NAME = "blueair-plugin";
 export const PLUGIN_NAME = "homebridge-blueair-plugin";
 
 /**

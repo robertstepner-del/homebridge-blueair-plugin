@@ -29,7 +29,7 @@
         </div>
         <button class="btn btn-primary w-100" type="submit" id="discoverBtn">
           <span id="discoverBtnText">Sign In & Discover Devices</span>
-          <span id="discoverBtnSpinner" class="spinner-border spinner-border-sm d-none" role="status"></span>
+          <span id="discoverBtnSpinner" class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
         </button>
       </form>
     </div>
@@ -83,6 +83,19 @@
     background-color: rgba(255, 255, 255, 0.05);
   }
   
+  .badge {
+    display: inline-block;
+    padding: 0.35em 0.65em;
+    font-size: 0.75em;
+    font-weight: 700;
+    line-height: 1;
+    color: #fff;
+    text-align: center;
+    white-space: nowrap;
+    vertical-align: baseline;
+    border-radius: 0.25rem;
+  }
+  
   .badge-purifier {
     background-color: #0d6efd;
   }
@@ -102,30 +115,16 @@
     // Initialize
     homebridge.showSpinner();
     
-    let defaultConfig = {};
-    let defaultDeviceConfig = {};
+    const { defaultConfig, defaultDeviceConfig } = await homebridge.request('/getDefaults');
+    const pluginConfig = await homebridge.getPluginConfig();
+    const configSchema = await homebridge.getPluginConfigSchema();
     
-    try {
-      const defaults = await homebridge.request('/getDefaults');
-      defaultConfig = defaults.defaultConfig || {};
-      defaultDeviceConfig = defaults.defaultDeviceConfig || {};
-    } catch (e) {
-      console.error('Failed to get defaults:', e);
+    if (!pluginConfig.length) {
+      pluginConfig.push({});
     }
+    let configuration = pluginConfig[0];
     
-    let pluginConfig = await homebridge.getPluginConfig();
-    
-    if (!pluginConfig || !pluginConfig.length) {
-      pluginConfig = [{}];
-    }
-    let configuration = pluginConfig[0] || {};
-    
-    try {
-      configuration = await homebridge.request('/mergeToDefault', { config: configuration });
-    } catch (e) {
-      console.error('Failed to merge config:', e);
-      configuration = { ...defaultConfig, devices: [] };
-    }
+    configuration = await homebridge.request('/mergeToDefault', { config: configuration });
     
     // Pre-fill credentials if already saved
     if (configuration.username) {
@@ -162,6 +161,7 @@
     const spinner = document.getElementById('discoverBtnSpinner');
     
     btn.disabled = loading;
+    btn.setAttribute('aria-busy', loading.toString());
     text.textContent = loading ? 'Discovering...' : 'Sign In & Discover Devices';
     spinner.classList.toggle('d-none', !loading);
   }
@@ -251,6 +251,11 @@
       return;
     }
     
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(username)) {
+      showStatus('Please enter a valid email address', 'warning');
+      return;
+    }
+    
     setButtonLoading(true);
     hideStatus();
     
@@ -258,7 +263,7 @@
       // Discover devices
       const devices = await homebridge.request('/discover', { username, password, region });
       
-      if (!devices || devices.length === 0) {
+      if (!devices || !Array.isArray(devices) || devices.length === 0) {
         showStatus('No devices found on this account', 'warning');
         setButtonLoading(false);
         return;
@@ -268,7 +273,11 @@
       
       // Get the account UUID from first device
       // Note: The BlueAir API uses the device's 'name' field (homehost) as the account identifier
-      const accountUuid = devices[0].name;
+      const accountUuid = devices[0]?.name;
+      
+      if (!accountUuid) {
+        throw new Error('Could not determine account UUID from devices');
+      }
       
       // Update configuration with credentials
       configuration.username = username;
@@ -305,8 +314,42 @@
     try {
       homebridge.showSpinner();
       
+      // Filter out defaults before saving
+      function filterOutDefaults(object, defaults) {
+        function deleteEmptyObjects(obj) {
+          for (const [k, v] of Object.entries(obj)) {
+            if (!v || typeof v !== 'object' || v === null) {
+              continue;
+            }
+            deleteEmptyObjects(v);
+            if (Object.keys(v).length === 0) {
+              delete obj[k];
+            }
+          }
+          return obj;
+        }
+
+        let newObject = {};
+        for (const [k, v] of Object.entries(object)) {
+          if (k === 'devices') {
+            newObject[k] = v.map((device) => {
+              return filterOutDefaults(device, defaultDeviceConfig);
+            });
+          } else if (typeof v === 'object' && v !== null) {
+            newObject[k] = filterOutDefaults(v, defaults[k]);
+          } else if (typeof defaults === 'object' && k in defaults && v === defaults[k]) {
+            continue;
+          } else {
+            newObject[k] = v;
+          }
+        }
+        return deleteEmptyObjects(newObject);
+      }
+      
+      const configToSave = filterOutDefaults(configuration, defaultConfig);
+      
       // Save the configuration
-      await homebridge.updatePluginConfig([configuration]);
+      await homebridge.updatePluginConfig([configToSave]);
       await homebridge.savePluginConfig();
       
       homebridge.toast.success('Configuration saved! Restart Homebridge to apply changes.');
