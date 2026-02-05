@@ -98,30 +98,47 @@
 
 <script>
 (async () => {
-  // Initialize
-  homebridge.showSpinner();
-  
-  const { defaultConfig, defaultDeviceConfig } = await homebridge.request('/getDefaults');
-  let pluginConfig = await homebridge.getPluginConfig();
-  
-  if (!pluginConfig.length) {
-    pluginConfig.push({});
-  }
-  let configuration = pluginConfig[0];
-  configuration = await homebridge.request('/mergeToDefault', { config: configuration });
-  
-  // Pre-fill credentials if already saved
-  if (configuration.username) {
-    document.getElementById('username').value = configuration.username;
-  }
-  if (configuration.region) {
-    document.getElementById('region').value = configuration.region;
-  }
-  
-  let discoveredDevices = [];
-  let deviceStates = [];
-  
-  homebridge.hideSpinner();
+  try {
+    // Initialize
+    homebridge.showSpinner();
+    
+    let defaultConfig = {};
+    let defaultDeviceConfig = {};
+    
+    try {
+      const defaults = await homebridge.request('/getDefaults');
+      defaultConfig = defaults.defaultConfig || {};
+      defaultDeviceConfig = defaults.defaultDeviceConfig || {};
+    } catch (e) {
+      console.error('Failed to get defaults:', e);
+    }
+    
+    let pluginConfig = await homebridge.getPluginConfig();
+    
+    if (!pluginConfig || !pluginConfig.length) {
+      pluginConfig = [{}];
+    }
+    let configuration = pluginConfig[0] || {};
+    
+    try {
+      configuration = await homebridge.request('/mergeToDefault', { config: configuration });
+    } catch (e) {
+      console.error('Failed to merge config:', e);
+      configuration = { ...defaultConfig, devices: [] };
+    }
+    
+    // Pre-fill credentials if already saved
+    if (configuration.username) {
+      document.getElementById('username').value = configuration.username;
+    }
+    if (configuration.region) {
+      document.getElementById('region').value = configuration.region;
+    }
+    
+    let discoveredDevices = [];
+    let deviceStates = [];
+    
+    homebridge.hideSpinner();
   
   // Helper functions
   function showStatus(message, type = 'info') {
@@ -250,7 +267,8 @@
       discoveredDevices = devices;
       
       // Get the account UUID from first device
-      const accountUuid = devices[0].uuid;
+      // Note: The BlueAir API uses the device's 'name' field (homehost) as the account identifier
+      const accountUuid = devices[0].name;
       
       // Update configuration with credentials
       configuration.username = username;
@@ -314,5 +332,10 @@
     await saveConfiguration();
   });
   
+  } catch (e) {
+    console.error('UI initialization error:', e);
+    homebridge.hideSpinner();
+    homebridge.toast.error('Failed to initialize: ' + e.message);
+  }
 })();
 </script>
