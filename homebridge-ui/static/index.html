@@ -1,264 +1,318 @@
- <link href="css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous" />
- <script src="js/bootstrap.min.js" crossorigin="anonymous"></script>
+<link href="css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous" />
+<script src="js/bootstrap.min.js" crossorigin="anonymous"></script>
 
- <div id="main" data-bs-theme="dark">
-   <div class="card">
+<div id="main" data-bs-theme="dark">
+  <!-- Login Section -->
+  <div class="card mb-3" id="loginSection">
+    <div class="card-header">
+      <h5 class="mb-0">Connect to BlueAir Account</h5>
+    </div>
+    <div class="card-body">
+      <form id="loginForm">
+        <div class="mb-3">
+          <label for="username" class="form-label">Email</label>
+          <input type="email" class="form-control" id="username" placeholder="your@email.com" required>
+        </div>
+        <div class="mb-3">
+          <label for="password" class="form-label">Password</label>
+          <input type="password" class="form-control" id="password" required>
+        </div>
+        <div class="mb-3">
+          <label for="region" class="form-label">Region</label>
+          <select class="form-select" id="region">
+            <option value="Default (all other regions)">Default (all other regions)</option>
+            <option value="Australia">Australia</option>
+            <option value="China">China</option>
+            <option value="Russia">Russia</option>
+            <option value="USA">USA/Canada</option>
+          </select>
+        </div>
+        <button class="btn btn-primary w-100" type="submit" id="discoverBtn">
+          <span id="discoverBtnText">Sign In & Discover Devices</span>
+          <span id="discoverBtnSpinner" class="spinner-border spinner-border-sm d-none" role="status"></span>
+        </button>
+      </form>
+    </div>
+  </div>
 
-     <div class="card-header" id="uiButtons">
-       <h5 class="mb-0 text-center">
-         <button class="btn btn-primary" data-bs-toggle="collapse" data-bs-target="#discoverDevices"
-           aria-expanded="false" aria-controls="discoverDevices" style="border: 0;">
-           Discover devices
-         </button>
-       </h5>
-     </div>
+  <!-- Discovered Devices Section -->
+  <div class="card mb-3 d-none" id="devicesSection">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <h5 class="mb-0">Discovered Devices</h5>
+      <button class="btn btn-sm btn-outline-secondary" id="refreshBtn">Refresh</button>
+    </div>
+    <div class="card-body">
+      <div class="table-responsive">
+        <table class="table table-hover" id="devicesTable">
+          <thead>
+            <tr>
+              <th>Device Name</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="devicesTableBody">
+          </tbody>
+        </table>
+      </div>
+      <div class="mt-3">
+        <button class="btn btn-success w-100" id="saveConfigBtn">
+          Save Configuration
+        </button>
+      </div>
+    </div>
+  </div>
 
-     <div class="collapse" id="discoverDevices">
-       <div class="card-body">
-         <form>
-           <div class="mb-3" id="login">
-            <div class="mb-3">
-              <label for="username" class="form-label">Username</label>
-              <input type="text" class="form-control" id="username">
-            </div>
-            <div class="mb-3">
-              <label for="password" class="form-label">Password</label>
-              <input type="password" class="form-control" id="password">
-            </div>
-            <div class="mb-3">
-              <label for="region" class="form-label">Region</label>
-              <select class="form-select" id="region">
-                <option value="Default (all other regions)">Default (all other regions)</option>
-                <option value="Australia">Australia</option>
-                <option value="China">China</option>
-                <option value="Russia">Russia</option>
-                <option value="USA">USA/Canada</option>
-              </select>
-           </div>
-           <button class="btn btn-primary btn-login" type="submit" id="discoverBtn" style="border: 0;">
-             Discover Devices on account
-           </button>
-         </form>
-         <div class="text-center device-table" style="display: none" id="discoverTableWrapper">
-           <table class="table table-sm" id="discoverTable">
-             <thead>
-               <tr>
-                 <th scope="col">Name</th>
-                 <th scope="col">Id</th>
-                 <th scope="col">Mac</th>
-                 <th scope="col">Add&nbsp;/&nbsp;Update</th>
-               </tr>
-             </thead>
-             <tbody>
-               <tr>
-                 <td>No devices found!</td>
-               </tr>
-             </tbody>
-           </table>
-         </div>
-       </div>
-     </div>
-   </div>
+  <!-- Status Messages -->
+  <div id="statusMessage" class="alert d-none" role="alert"></div>
+</div>
 
- </div>
+<style>
+  #main {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+  
+  .device-row {
+    transition: background-color 0.2s;
+  }
+  
+  .device-row:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+  }
+  
+  .badge-purifier {
+    background-color: #0d6efd;
+  }
+  
+  .badge-humidifier {
+    background-color: #0dcaf0;
+  }
+  
+  .badge-other {
+    background-color: #6c757d;
+  }
+</style>
 
- <style>
-
-   .hide {
-     display: none;
-   }
-
-   .disabled {
-     pointer-events: none;
-     opacity: 0.5;
-   }
- </style>
-
-
- <script>
-
-   (async () => {
-     /*********************************************************************
-      * Initialize Javascript supporting code
-      */
-     homebridge.showSpinner();
-
-     const { defaultConfig, defaultDeviceConfig } = await homebridge.request('/getDefaults');
-     const pluginConfig = await homebridge.getPluginConfig();
-     const configSchema = await homebridge.getPluginConfigSchema();
-
-     if (!pluginConfig.length) {
-       pluginConfig.push({});
-     }
-     let configuration = pluginConfig[0];
-
-     // Helper funcion to contol debug messages
-     function debugLog(s) {
-       if (configuration.uiDebug) {
-         console.debug(s);
-       }
-     }
-
-     debugLog(`Plugin Config:\n${JSON.stringify(configuration, null, 2)}`);
-     configuration = await homebridge.request('/mergeToDefault', { config: configuration });
-
-     /*********************************************************************
-      * showToast event listener
-      * Provides information from server-side to the end user.
-      */
-     homebridge.addEventListener('showToast', (event) => {
-       debugLog(`showToast Received: ${JSON.stringify(event.data)}`);
-       if (event.data.success) {
-         homebridge.toast.success(event.data.msg);
-       } else {
-         homebridge.toast.error(event.data.msg);
-       }
-     });
-
-     /*********************************************************************
-      * filterOutDefaults
-      * returns object for config.json that has default values removed
-      */
-     function filterOutDefaults(object, defaults) {
-
-       function deleteEmptyObjects(object) {
-         for (const [k, v] of Object.entries(object)) {
-           if (!v || typeof v !== 'object' || v === null) {
-             continue;
-           }
-           deleteEmptyObjects(v);
-           if (Object.keys(v).length === 0) {
-             delete object[k];
-           }
-         }
-         return object;
-       }
-
-       let newObject = {};
-       for (const [k, v] of Object.entries(object)) {
-         if (k === 'devices') {
-           newObject[k] = v.map((device) => {
-             return filterOutDefaults(device, defaultDeviceConfig);
-           });
-         } else if (typeof v === 'object' && v !== null) {
-           newObject[k] = filterOutDefaults(v, defaults[k]);
-         } else if (typeof defaults === 'object' && k in defaults && v === defaults[k]) {
-           continue;
-         } else {
-           newObject[k] = v;
-         }
-       }
-       return deleteEmptyObjects(newObject);
-     }
-
-     /*********************************************************************
-      * createForm
-      * Update the plugin config GUI. Does not save to config.json
-      */
-     function createForm(configSchema, configuration) {
-       const configForm = homebridge.createForm(configSchema, configuration);
-       configForm.onChange(async (changes) => {
-         changes = filterOutDefaults(changes, defaultConfig);
-         debugLog(`[createForm] Config changes:\n${JSON.stringify(changes, null, 2)}`);
-         await homebridge.updatePluginConfig([changes]);
-       });
-     }
-
-     createForm(configSchema, configuration);
-     homebridge.hideSpinner();
-
-     /*********************************************************************
-      * Discover button clicked....
-      */
-     document.getElementById('discoverBtn').addEventListener('click', async (e) => {
-       e.preventDefault();
-
-       const username = document.getElementById('username').value;
-       const password = document.getElementById('password').value;
-       const region = document.getElementById('region').value;
-
-       homebridge.showSpinner();
-
-       console.info(`Request login...`);
-       try {
-          const devices = await homebridge.request('/discover', { username, password, region });
-          debugLog(`Discovered devices:\n${JSON.stringify(devices, null, 2)}`);
-          const table = document.getElementById('discoverTable').getElementsByTagName('tbody')[0];
-          table.innerHTML = '';
-
-          // Merge current config over to the server so discover has latest device config...
-          let currentConfig = await homebridge.getPluginConfig();
-          currentConfig = currentConfig.length > 0 ? currentConfig[0] : {};
-          configuration = await homebridge.request('/mergeToDefault', { config: currentConfig });
-
-          currentConfig.devices = currentConfig.devices || [];
-          if (devices) {
-
-            const accountUuid = devices[0].uuid;
-
-            configuration.username = username;
-            configuration.password = password;
-            configuration.region = region;
-            configuration.accountUuid = accountUuid;
-
-            const initialStates = await homebridge.request('/getInitialDeviceStates', { accountUuid, uuids: devices.map((d) => d.uuid) });
-
-            devices.forEach((device) => {
-              const state = initialStates.find((s) => s.id === device.uuid);
-              const tr = table.insertRow();
-              const td = tr.insertCell();
-              td.appendChild(document.createTextNode(state.name));
-              td.setAttribute('scope', 'row');
-
-              tr.insertCell().appendChild(document.createTextNode(device.uuid));
-              tr.insertCell().appendChild(document.createTextNode(device.mac));
-
-              const addCell = tr.insertCell();
-              if (currentConfig.devices.find((d) => d.id === device.uuid)) {
-                addCell.appendChild(document.createTextNode('Already added'));
-              } else {
-                // No record for this device, add button to add it.
-                const button = document.createElement('button');
-                button.innerText = 'Add';
-                button.className = 'btn btn-secondary btn-sm';
-                button.addEventListener('click', async () => {
-                  // Add button clicked...
-                  const newDevice = {
-                    id: device.uuid,
-                    name: state.name
-                  };
-
-                  configuration.devices.push({
-                    ...defaultDeviceConfig,
-                    ...newDevice
-                  });
-                  debugLog(`Adding new device:\n${JSON.stringify({ ...defaultDeviceConfig, ...newDevice }, null, 2)}`);
-                  // refresh view
-                  createForm(configSchema, configuration);
-
-                  addCell.removeChild(button);
-                  addCell.appendChild(document.createTextNode('Added'));
-
-                  homebridge.toast.success('Device added');
-                });
-                addCell.appendChild(button);
-              }
-            });
-          } else {
-            table.innerHTML += `<tr><td>No devices found!</td></tr>`;
+<script>
+(async () => {
+  // Initialize
+  homebridge.showSpinner();
+  
+  const { defaultConfig, defaultDeviceConfig } = await homebridge.request('/getDefaults');
+  let pluginConfig = await homebridge.getPluginConfig();
+  
+  if (!pluginConfig.length) {
+    pluginConfig.push({});
+  }
+  let configuration = pluginConfig[0];
+  configuration = await homebridge.request('/mergeToDefault', { config: configuration });
+  
+  // Pre-fill credentials if already saved
+  if (configuration.username) {
+    document.getElementById('username').value = configuration.username;
+  }
+  if (configuration.region) {
+    document.getElementById('region').value = configuration.region;
+  }
+  
+  let discoveredDevices = [];
+  let deviceStates = [];
+  
+  homebridge.hideSpinner();
+  
+  // Helper functions
+  function showStatus(message, type = 'info') {
+    const statusEl = document.getElementById('statusMessage');
+    statusEl.className = `alert alert-${type}`;
+    statusEl.textContent = message;
+    statusEl.classList.remove('d-none');
+    
+    if (type === 'success') {
+      setTimeout(() => statusEl.classList.add('d-none'), 3000);
+    }
+  }
+  
+  function hideStatus() {
+    document.getElementById('statusMessage').classList.add('d-none');
+  }
+  
+  function setButtonLoading(loading) {
+    const btn = document.getElementById('discoverBtn');
+    const text = document.getElementById('discoverBtnText');
+    const spinner = document.getElementById('discoverBtnSpinner');
+    
+    btn.disabled = loading;
+    text.textContent = loading ? 'Discovering...' : 'Sign In & Discover Devices';
+    spinner.classList.toggle('d-none', !loading);
+  }
+  
+  function getDeviceTypeBadge(type) {
+    const typeStr = (type || 'unknown').toLowerCase();
+    if (typeStr.includes('humidifier')) {
+      return '<span class="badge badge-humidifier">Humidifier</span>';
+    } else if (typeStr.includes('purifier') || typeStr.includes('protect') || typeStr.includes('dustmagnet')) {
+      return '<span class="badge badge-purifier">Purifier</span>';
+    }
+    return `<span class="badge badge-other">${type || 'Unknown'}</span>`;
+  }
+  
+  function isDeviceAdded(uuid) {
+    return configuration.devices && configuration.devices.some(d => d.id === uuid);
+  }
+  
+  function renderDevicesTable() {
+    const tbody = document.getElementById('devicesTableBody');
+    tbody.innerHTML = '';
+    
+    if (discoveredDevices.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No devices found</td></tr>';
+      return;
+    }
+    
+    discoveredDevices.forEach((device) => {
+      const state = deviceStates.find(s => s.id === device.uuid);
+      const deviceName = state?.name || device.name || 'Unknown Device';
+      const isAdded = isDeviceAdded(device.uuid);
+      
+      const tr = document.createElement('tr');
+      tr.className = 'device-row';
+      tr.innerHTML = `
+        <td><strong>${deviceName}</strong><br><small class="text-muted">${device.uuid.substring(0, 8)}...</small></td>
+        <td>${getDeviceTypeBadge(device.type)}</td>
+        <td>${isAdded ? '<span class="text-success">✓ Added</span>' : '<span class="text-muted">Not added</span>'}</td>
+        <td></td>
+      `;
+      
+      const actionCell = tr.querySelector('td:last-child');
+      
+      if (isAdded) {
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'btn btn-outline-danger btn-sm';
+        removeBtn.textContent = 'Remove';
+        removeBtn.addEventListener('click', () => {
+          configuration.devices = configuration.devices.filter(d => d.id !== device.uuid);
+          renderDevicesTable();
+          homebridge.toast.info(`${deviceName} removed`);
+        });
+        actionCell.appendChild(removeBtn);
+      } else {
+        const addBtn = document.createElement('button');
+        addBtn.className = 'btn btn-primary btn-sm';
+        addBtn.textContent = 'Add';
+        addBtn.addEventListener('click', () => {
+          const newDevice = {
+            ...defaultDeviceConfig,
+            id: device.uuid,
+            name: deviceName,
+            model: device.type || 'BlueAir Device'
+          };
+          
+          if (!configuration.devices) {
+            configuration.devices = [];
           }
-          document.getElementById('discoverTableWrapper').style.display = 'block';
-
-          homebridge.hideSpinner();
-
-       } catch (e) {
-         homebridge.toast.error(e.message);
-         homebridge.hideSpinner();
-         return;
-
-       }
-
-     });
-   })();
-
- </script>
+          configuration.devices.push(newDevice);
+          renderDevicesTable();
+          homebridge.toast.success(`${deviceName} added`);
+        });
+        actionCell.appendChild(addBtn);
+      }
+      
+      tbody.appendChild(tr);
+    });
+  }
+  
+  async function discoverDevices() {
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value;
+    const region = document.getElementById('region').value;
+    
+    if (!username || !password) {
+      showStatus('Please enter your email and password', 'warning');
+      return;
+    }
+    
+    setButtonLoading(true);
+    hideStatus();
+    
+    try {
+      // Discover devices
+      const devices = await homebridge.request('/discover', { username, password, region });
+      
+      if (!devices || devices.length === 0) {
+        showStatus('No devices found on this account', 'warning');
+        setButtonLoading(false);
+        return;
+      }
+      
+      discoveredDevices = devices;
+      
+      // Get the account UUID from first device
+      const accountUuid = devices[0].uuid;
+      
+      // Update configuration with credentials
+      configuration.username = username;
+      configuration.password = password;
+      configuration.region = region;
+      configuration.accountUuid = accountUuid;
+      
+      // Get device states for names
+      try {
+        deviceStates = await homebridge.request('/getInitialDeviceStates', { 
+          accountUuid, 
+          uuids: devices.map(d => d.uuid) 
+        });
+      } catch (e) {
+        console.warn('Could not get device states:', e);
+        deviceStates = [];
+      }
+      
+      // Show devices section
+      document.getElementById('devicesSection').classList.remove('d-none');
+      renderDevicesTable();
+      
+      showStatus(`Found ${devices.length} device(s)`, 'success');
+      
+    } catch (e) {
+      console.error('Discovery error:', e);
+      showStatus(`Login failed: ${e.message}`, 'danger');
+    } finally {
+      setButtonLoading(false);
+    }
+  }
+  
+  async function saveConfiguration() {
+    try {
+      homebridge.showSpinner();
+      
+      // Save the configuration
+      await homebridge.updatePluginConfig([configuration]);
+      await homebridge.savePluginConfig();
+      
+      homebridge.toast.success('Configuration saved! Restart Homebridge to apply changes.');
+      homebridge.hideSpinner();
+      
+    } catch (e) {
+      homebridge.hideSpinner();
+      showStatus(`Failed to save: ${e.message}`, 'danger');
+    }
+  }
+  
+  // Event listeners
+  document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await discoverDevices();
+  });
+  
+  document.getElementById('refreshBtn').addEventListener('click', async () => {
+    await discoverDevices();
+  });
+  
+  document.getElementById('saveConfigBtn').addEventListener('click', async () => {
+    await saveConfiguration();
+  });
+  
+})();
+</script>
