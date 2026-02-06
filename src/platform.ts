@@ -66,6 +66,19 @@ export class BlueAirPlatform
     );
 
     this.api.on("didFinishLaunching", async () => {
+      // Skip API initialization if credentials are missing (first-time setup)
+      if (
+        !this.platformConfig.username ||
+        !this.platformConfig.password ||
+        !this.platformConfig.accountUuid
+      ) {
+        this.log.warn(
+          "Skipping device initialization — credentials not configured yet. " +
+            "Please use the Homebridge UI to discover and configure your devices.",
+        );
+        return;
+      }
+
       await this.getInitialDeviceStates();
 
       // Add a small delay before starting polling to reduce API pressure

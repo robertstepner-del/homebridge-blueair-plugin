@@ -592,7 +592,7 @@ export class BlueAirAccessory {
             this.getNightLightBrightness(),
           );
           break;
-        case "pm25":
+        case "pm2_5":
         case "pm10":
         case "voc":
           this.handleAirQualityChange(key);

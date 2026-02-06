@@ -1,6 +1,56 @@
 const { HomebridgePluginUiServer, RequestError } = require('@homebridge/plugin-ui-utils');
-const { defaultConfig, defaultDeviceConfig } = require('../dist/utils.js');
-const BlueAirAwsApi = require('../dist/api/BlueAirAwsApi.js').default;
+
+// Lazy-load compiled dist files to prevent server crash if dist/ doesn't exist yet
+let defaultConfig, defaultDeviceConfig, BlueAirAwsApi;
+let distLoaded = false;
+let distLoadError = null;
+
+function loadDist() {
+  if (distLoaded) return true;
+  try {
+    const utils = require('../dist/utils.js');
+    defaultConfig = utils.defaultConfig;
+    defaultDeviceConfig = utils.defaultDeviceConfig;
+    BlueAirAwsApi = require('../dist/api/BlueAirAwsApi.js').default;
+    distLoaded = true;
+    return true;
+  } catch (e) {
+    distLoadError = e;
+    // Provide inline fallback defaults so the UI can still render
+    defaultConfig = {
+      name: 'BlueAir Platform',
+      uiDebug: false,
+      verboseLogging: true,
+      username: '',
+      password: '',
+      region: 'Default (all other regions)',
+      accountUuid: '',
+      pollingInterval: 120,
+      devices: [],
+    };
+    defaultDeviceConfig = {
+      id: '',
+      name: '',
+      model: '',
+      serialNumber: '',
+      filterChangeLevel: 10,
+      showFanTile: true,
+      defaultTargetHumidity: 60,
+      led: true,
+      nightLight: false,
+      airQualitySensor: true,
+      co2Sensor: true,
+      temperatureSensor: true,
+      humiditySensor: true,
+      germShield: false,
+      nightMode: false,
+    };
+    return false;
+  }
+}
+
+// Attempt initial load
+loadDist();
 
 var _ = require('lodash');
 
@@ -56,15 +106,48 @@ class Logger {
  * Main server-side script called when Custom UI client sends requests
  */
 class UiServer extends HomebridgePluginUiServer {
+
   logger;
+  config;
   api;
 
   constructor() {
     super();
     
-    // Initialize logger
+    // Initialize logger first (with defaults)
     this.logger = new Logger(false);
-    this.logger.info('BlueAir Custom UI server started.');
+    this.logger.info('Custom UI server started.');
+    
+    // Try to get config from homebridge config.json
+    try {
+      const allPlatforms = require(this.homebridgeConfigPath).platforms || [];
+      const config = allPlatforms.find((obj) => obj.platform === 'blueair-plugin');
+      if (config?.uiDebug) {
+        this.logger.setDebugEnabled(true);
+      }
+    } catch (e) {
+      this.logger.debug(`Could not load config from homebridgeConfigPath: ${e}`);
+    }
+
+    this.onRequest('/mergeToDefault', async ({ config }) => {
+      if (!config || typeof config !== 'object') {
+        config = {};
+      }
+      _.defaultsDeep(config, defaultConfig);
+      if (config.devices && Array.isArray(config.devices)) {
+        config.devices.forEach((device) => {
+          if (device && typeof device === 'object') {
+            _.defaultsDeep(device, defaultDeviceConfig);
+          }
+        });
+      } else {
+        config.devices = [];
+      }
+      this.config = config;
+      this.logger.setDebugEnabled(config.uiDebug ? config.uiDebug : false);
+      this.logger.debug(`Merged config:\n${JSON.stringify(config, null, 2)}`);
+      return config;
+    });
 
     this.onRequest('/getDefaults', async () => {
       return {
@@ -73,66 +156,48 @@ class UiServer extends HomebridgePluginUiServer {
       };
     });
 
-    this.onRequest('/mergeToDefault', async ({ config }) => {
-      try {
-        if (!config || typeof config !== 'object') {
-          config = {};
-        }
-        _.defaultsDeep(config, defaultConfig);
-        if (config.devices && Array.isArray(config.devices)) {
-          config.devices.forEach((device) => {
-            _.defaultsDeep(device, defaultDeviceConfig);
-          });
-        } else {
-          config.devices = [];
-        }
-        this.logger.setDebugEnabled(config.uiDebug || false);
-        return config;
-      } catch (e) {
-        this.logger.error(`mergeToDefault error: ${e}`);
-        return { ...defaultConfig, devices: [] };
-      }
-    });
-
     this.onRequest('/discover', async ({ username, password, region }) => {
+      // Re-attempt loading dist if it failed initially (e.g., build finished after server start)
+      if (!distLoaded) {
+        loadDist();
+      }
+      if (!BlueAirAwsApi) {
+        throw new RequestError(
+          'Plugin is not fully built yet. Please restart Homebridge after the plugin is installed and try again.'
+        );
+      }
       try {
-        if (!username || !password) {
-          throw new Error('Username and password are required');
-        }
         this.api = new BlueAirAwsApi(username, password, region, this.logger);
         await this.api.login();
         const devices = await this.api.getDevices();
-        return devices || [];
+
+        return devices;
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        this.logger.error(`Device discovery failed: ${msg}`);
-        throw new RequestError(`Discovery failed: ${msg}`);
+        const msg = e instanceof Error ? e.stack : e;
+        this.logger.error(`Device discovery failed:\n${msg}`);
+        throw new RequestError(`Device discovery failed:\n${msg}`);
       }
     });
 
     this.onRequest('/getInitialDeviceStates', async ({ accountUuid, uuids }) => {
+      if (!this.api) {
+        throw new RequestError('Please run device discovery first before fetching device states.');
+      }
       try {
-        if (!this.api) {
-          throw new Error('Not logged in. Please discover devices first.');
-        }
-        if (!accountUuid || !uuids || !uuids.length) {
-          throw new Error('Missing accountUuid or device uuids');
-        }
-        const states = await this.api.getDeviceStatus(accountUuid, uuids);
-        return states || [];
+        return await this.api.getDeviceStatus(accountUuid, uuids);
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        this.logger.error(`Failed to get device states: ${msg}`);
-        throw new RequestError(`Failed to get device states: ${msg}`);
+        const msg = e instanceof Error ? e.stack : e;
+        this.logger.error(`Failed to get initial device states:\n${msg}`);
+        throw new RequestError(`Failed to get initial device states:\n${msg}`);
       }
     });
 
-    // Signal that the server is ready to receive requests
+    // inform client-side script that we are ready to receive requests.
     this.ready();
   }
 }
 
-// Start the server
+// start the instance of the class
 (() => {
   return new UiServer();
 })();
