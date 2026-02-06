@@ -1,7 +1,7 @@
 {
   "displayName": "Homebridge BlueAir Plugin",
   "name": "homebridge-blueair-plugin",
-  "version": "1.2.16",
+  "version": "1.2.19",
   "description": "Homebridge plugin for BlueAir devices",
   "license": "Apache-2.0",
   "repository": {
@@ -50,6 +50,9 @@
     "@homebridge/plugin-ui-utils": "^1.0.3",
     "async-mutex": "^0.5.0",
     "lodash": "^4.17.21"
+  },
+  "homebridge": {
+    "ui": "homebridge-ui/server.js"
   },
   "homebridge-ui": {
     "public": "homebridge-ui/static",
